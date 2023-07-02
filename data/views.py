@@ -1,10 +1,12 @@
 from django.shortcuts import render
 from data.models import *
+from data.serializers import *
 import pandas as pd
 import json
 import time as tm
 import asyncio
 import aiohttp
+from asgiref.sync import sync_to_async
 from django.core.serializers.json import DjangoJSONEncoder
 from datetime import *
 from chinese_calendar import is_workday
@@ -13,6 +15,11 @@ import akshare as ak
 from data.cron import *
 from django.http import HttpResponse
 from django.db.models import Aggregate,CharField,Count
+
+# from rest_framework.viewsets import ModelViewSet
+from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
 
 #交易日判断
 def is_trade_day(date):
@@ -47,6 +54,62 @@ class GroupConcat(Aggregate):
             output_field=CharField(),
             **extra)
 
+class HotStockViewSet(APIView):  
+    permission_classes = [AllowAny]
+    # pagination_class = DataPagination
+    filterset_fields = ['asin', 'shop', 'brand', 'festival', 'carrier']
+
+    #不分页
+    def get(self,request):
+        query_params = request.query_params
+        # 使用过滤器过滤数据
+        queryset = HotStock.objects.order_by('id')
+        # Filter queryset based on query parameters in the request  
+        for key in query_params:
+            if key in self.filterset_fields:
+                if query_params[key] is not None and query_params[key] != '':
+                    # if key == 'kind':
+                    #     queryset = queryset.filter(kind__contains=query_params[key])
+                    # else:
+                    queryset = queryset.filter(**{key: query_params[key]})
+        # Serialize the paginated queryset and return it to the client
+        res = HotStockSerializer(queryset, many=True)
+        # return paginator.get_paginated_response(res.data)
+        return Response({
+            # rest_framework.response.Response转dict
+            "data": res.data,
+            "code": 200,
+            "message": "请求成功"
+        })
+
+class LimitupStockViewSet(APIView):  
+    permission_classes = [AllowAny]
+    # pagination_class = DataPagination
+    filterset_fields = ['asin', 'shop', 'brand', 'festival', 'carrier']
+
+    #不分页
+    def get(self,request):
+        query_params = request.query_params
+        # 使用过滤器过滤数据
+        queryset = LimitupStock.objects.order_by('id')
+        # Filter queryset based on query parameters in the request  
+        for key in query_params:
+            if key in self.filterset_fields:
+                if query_params[key] is not None and query_params[key] != '':
+                    # if key == 'kind':
+                    #     queryset = queryset.filter(kind__contains=query_params[key])
+                    # else:
+                    queryset = queryset.filter(**{key: query_params[key]})
+        # Serialize the paginated queryset and return it to the client
+        res = LimitupStockSerializer(queryset, many=True)
+        # return paginator.get_paginated_response(res.data)
+        return Response({
+            # rest_framework.response.Response转dict
+            "data": res.data,
+            "code": 200,
+            "message": "请求成功"
+        })
+
 def getHotRankStocks(request):
     chart = [('Name','Rank','Change','Concept','Popularity','Express','Time')]
     # try:
@@ -54,7 +117,7 @@ def getHotRankStocks(request):
     # engine = getSqliteEngine()
     # print(engine.execute("SELECT * FROM hotstocks").fetchall())  
     #ORM查询
-    hotstocks = HotStocks.objects.filter(Time__gte=datetime.today()-timedelta(days=1)).\
+    hotstocks = HotStock.objects.filter(Time__gte=datetime.today()-timedelta(days=1)).\
     values_list('Name','Rank','Change','Concept','Popularity','Express','Time')
     # for hotstock in hotstocks:
     #     print(hotstock[-1])
@@ -68,7 +131,7 @@ def getHotRankStocks(request):
 def getHotTop10Stocks(request):
     top10 = []
     # today = datetime.date(2022,8,2)
-    stocks = HotStocks.objects.filter(Time__gte=datetime.today()-timedelta(days=1)).filter(Rank__lte=10).values('Name').distinct()
+    stocks = HotStock.objects.filter(Time__gte=datetime.today()-timedelta(days=1)).filter(Rank__lte=10).values('Name').distinct()
     for stock in stocks:
         top10.append(stock['Name'])
     return HttpResponse(json.dumps(top10,ensure_ascii=False))
@@ -298,53 +361,83 @@ def conceptWinStocksBk(concept_code):
     # g = (win_stocks['concept']).groupby(win_stocks['name']).agg(','.join)
     return win_stocks
 
-#概念策略
-def conceptStrategyData(request,**kwargs):
-    win_stock_set = []
-    # try:
-    for concept_code in kwargs['codes'].split(','):
-        concept = Concepts.objects.get(code=concept_code).name
-        rows = []
+#股票历史排名
+def stockHisRank(request,code):
+    sym = Security.objects.get(code=code).srcSecurityCode
+    stock_rank_detail_em_df = ak.stock_hot_rank_detail_em(symbol=sym)
+    data = {
+        'date': stock_rank_detail_em_df['时间'].to_list(),
+        'rank': stock_rank_detail_em_df['排名'].to_list()
+    }
+    return HttpResponse(json.dumps(data,cls=DjangoJSONEncoder,ensure_ascii=False))
 
+#股票最新排名
+def stockLatRank(request,code):
+    sym = Security.objects.get(code=code).srcSecurityCode
+    stock_hot_rank_latest_em_df = ak.stock_hot_rank_latest_em(symbol=sym)
+    rank = stock_hot_rank_latest_em_df[stock_hot_rank_latest_em_df.item == "rank"].iloc[-1,-1]
+    rank_change = stock_hot_rank_latest_em_df[stock_hot_rank_latest_em_df.item == "rankChange"].iloc[-1,-1]
+    data = {
+        'rank': rank,
+        'rank_change': rank_change
+    }
+    return HttpResponse(json.dumps(data,cls=DjangoJSONEncoder,ensure_ascii=False))
+
+class ConceptData(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        queryset = Concept.objects.order_by('id')
+        res = ConceptSerializer(queryset, many=True)
+        return Response({
+            "data": res.data,
+            "code": 200,
+            "message": "请求成功"
+        })
+
+#概念策略
+# def conceptStockData(request,**kwargs):
+class ConceptStockData(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        query_params = request.GET
+        # for concept_code in kwargs['codes'].split(','):
+        dfs = []
+        for concept_code in query_params['codes'].split(','):
+            stock_board_cons_ths_df = ak.stock_board_cons_ths(symbol=concept_code)
+            # concept = Concept.objects.get(code=concept_code).name
+            dfs.append(stock_board_cons_ths_df)
+        stocks = pd.concat(dfs)
+        stocks.drop_duplicates(subset="代码",inplace=True)
+
+        rows = []
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(conceptWinStocksLoop(concept_code,concept,kwargs['ismatch'],rows))
+        loop.run_until_complete(conceptWinStocksLoop(stocks,rows))
         loop.close()
 
-        win_stock = pd.DataFrame(rows,columns=['Name','Code','Latest','Currency_value','Change_percent','All_rank','Ind_rank','Related_concept'])
-        if not win_stock.empty:
-            win_stock.insert(loc=4,column='Concept',value=concept)
-            win_stock_set.append(win_stock)
-    # except Exception as e:
-    #     print(e)
-    #     return HttpResponse('err:',e)
-
-    if win_stock_set == []:
-        return HttpResponse(json.dumps([],cls=DjangoJSONEncoder,ensure_ascii=False))
-    # concept_stocks = []
-    if len(win_stock_set) == 1:
-        origin_stocks = win_stock_set[0]
-    else:
-        #df数据分组聚合 
-        # print('win_df:',win_stock_set)
-        origin_stocks = pd.concat(win_stock_set,ignore_index=True)
-        # origin_stocks['concept_count'] = origin_stocks.groupby('name')['name'].transform('count')
-        origin_stocks['Concept'] = origin_stocks.groupby('Name')['Concept'].transform(','.join)
-        origin_stocks.drop_duplicates(ignore_index=True,inplace=True)
-    origin_stocks['Currency_value'] = origin_stocks.apply(lambda x:x['Currency_value'].strip('亿'),axis=1)
-    # origin_stocks['currency_value'].astype(dtype='float')
-    origin_stocks.sort_values(by='Currency_value', inplace=True)
-    # print(origin_stocks)    
-    #df转dict
-    # for concept_stock in np.array(origin_stocks).tolist():
-    #     concept_stocks.append({'name':concept_stock[0],'code':concept_stock[1],'concept':concept_stock[4],'last_price':concept_stock[2],'increase':concept_stock[3]})
-    concept_stocks = origin_stocks.to_dict('records')
-    return HttpResponse(json.dumps(concept_stocks,cls=DjangoJSONEncoder,ensure_ascii=False))
-
+        # df = pd.DataFrame(rows,columns=['Name','Code','Latest','Currency_value','Change_percent','All_rank','Ind_rank','Related_concept'])
+        # if not win_stock.empty:
+        #     win_stock.insert(loc=4,column='Concept',value=concept)
+        #     win_stock_set.append(win_stock)
+        #df转dict
+        # for concept_stock in np.array(origin_stocks).tolist():
+        #     concept_stocks.append({'name':concept_stock[0],'code':concept_stock[1],'concept':concept_stock[4],'last_price':concept_stock[2],'increase':concept_stock[3]})
+        # concept_stocks = pd.concat(concept_stocks_dfs).to_dict('records')
+        # return HttpResponse(json.dumps(rows,cls=DjangoJSONEncoder,ensure_ascii=False))
+        # return HttpResponse(json.dumps(rows,ensure_ascii=False))
+        return Response({
+            # rest_framework.response.Response转dict
+            "data": rows,
+            "code": 200,
+            "message": "请求成功"
+        })
+    
 #获取概念潜力股筛选数据
-async def conceptWinStocks(concept_code,concept_name,is_match,rows,stock):
-    stock_info = {}
+async def conceptWinStocks(stock,rows):
+    #基础数据
     stock_code = stock.代码
     if stock_code.startswith('300'):
         return
@@ -354,65 +447,46 @@ async def conceptWinStocks(concept_code,concept_name,is_match,rows,stock):
     #     continue
     try:
         #流通值/亿
-        if float(stock.流通市值.rstrip('亿')) > 80:
+        if float(stock.流通市值.rstrip('亿')) > 100:
             return
         #涨跌幅
         changepercent = stock.涨跌幅
-        last_price = float(stock.现价)
+        latest = float(stock.现价)
     except:
         return
-    if last_price > 30:
+    if latest > 30:
         return
 
-    h = {'User-Agent':'Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36'}
-    url_info = 'http://basic.10jqka.com.cn/'+stock_code+'/'
-    url_rank = 'http://basic.10jqka.com.cn/mapp/'+stock_code+'/a_stock_foucs.json'
-    rsp = rq.get(url=url_rank,headers=h)
-    #市场排名
-    stock_info['all_rank'] = rsp.json()['data']['all_rank']
-    #行业排名
-    stock_info['industry_rank'] = rsp.json()['data']['industry_rank']
-    async with aiohttp.ClientSession() as session:
-        rsp = await session.get(url_info,headers=h,ssl=False)
-        rsp.encoding = 'gb2312'
-        content = await rsp.text()
-        # content = await rsp.content
+    #最近涨幅
+    stock_inc = await sync_to_async(Security.objects.get)(code=stock_code)
 
-        soup = BeautifulSoup(content, 'html.parser')
-        #公司亮点
-        try:
-            stock_info['lightspot'] = soup.find_all('span',text='公司亮点：')[0].find_next_sibling().string.strip()
-        except:
-            print(content)
-            return
-        #主营业务
-        stock_info['major'] = soup.find_all('span',text='主营业务：')[0].find_next_sibling().a['title']
-        #所属申万行业
-        stock_info['industry'] = soup.find_all('span',text='所属申万行业：')[0].find_next_sibling().text
+    #最新排名
+    stock_hot_rank_latest_em_df = ak.stock_hot_rank_latest_em(symbol=stock_inc.srcSecurityCode)
+    rank = stock_hot_rank_latest_em_df[stock_hot_rank_latest_em_df.item == "rank"].iloc[-1,-1]
+    rank_change = stock_hot_rank_latest_em_df[stock_hot_rank_latest_em_df.item == "rankChange"].iloc[-1,-1]
 
-        #前3贴合概念
-        concepts = []
-        for related_concept in soup.find(class_='newconcept').find_all('a')[:3]:
-            concepts.append(related_concept.text)
-        stock_info['fit_concepts'] = ' '.join(concepts)
-        # print(name,last_price,fit_concepts)
-        #是否开启概念贴合
-        if is_match:
-            if concept_name in stock_info['fit_concepts']:
-                rows.append([stock.名称,stock_code,last_price,stock.流通市值,changepercent,stock_info['all_rank'],stock_info['industry_rank'],stock_info['fit_concepts']])
-        else:
-            rows.append([stock.名称,stock_code,last_price,stock.流通市值,changepercent,stock_info['all_rank'],stock_info['industry_rank'],stock_info['fit_concepts']])
+    #主营介绍
+    stock_zy = await sync_to_async(StockZY.objects.get)(code=stock_code)
 
-    
+    rows.append({
+        'name': stock.名称,
+        'code': stock_code,
+        'latest':latest,
+        'currency_value': stock.流通市值,
+        'increase': changepercent,
+        'sixty_days_increase': stock_inc.sixty_days_increase,
+        'year_increase': stock_inc.year_increase,
+        'rank': rank,
+        'rank_change': rank_change,
+        'zyyw': stock_zy.zyyw,
+        'jyfw': stock_zy.jyfw
+    })
 
-async def conceptWinStocksLoop(concept_code,concept_name,is_match,rows):
+async def conceptWinStocksLoop(stocks,rows):
     works = []
     #获取概念成份股
-    stock_board_cons_ths_df = ak.stock_board_cons_ths(symbol=concept_code)
-    # print(concept_code,'获取成分股：\n',stock_board_cons_ths_df)
-    #获取每支股票最新价
-    for _,stock in stock_board_cons_ths_df.iterrows():
-        works.append(conceptWinStocks(concept_code,concept_name,is_match,rows,stock))
+    for _,stock in stocks.iterrows():
+        works.append(conceptWinStocks(stock,rows))
     await asyncio.gather(*works)
 
 #妖股策略

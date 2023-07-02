@@ -2,15 +2,30 @@
 scrape hot stocks
 """
 
-import json,time,os,math
+import sys,time,os,math
 import pandas as pd
 import requests as rq
+import django
+from django.http import QueryDict
+
 from bs4 import BeautifulSoup
-from tangying.common import getSqliteEngine
+# 获取项目 settings.py 文件的路径
+sys.path.append("/usr/local/tangying")
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tangying.settings")
+django.setup()
 from data.models import *
 from datetime import *
 from django.db.models import Count
 import akshare as ak
+
+from sqlalchemy import create_engine
+
+engine = create_engine('mysql' + '://' + 
+                       'root' + ':' +
+                       '12345678' + '@' +
+                       '127.0.0.1' + '/' + 
+                       'tangying')
 
 class HotRankStocks:
     def __init__(self):
@@ -49,12 +64,13 @@ class HotRankStocks:
         ls.extend(hot_list)
         return ls
 
-class LimitUpStocks:
+class LimitUpStock:
     def __init__(self):
         self.url = "https://data.10jqka.com.cn/dataapi/limit_up/limit_up_pool"
-        self.stocks_head = ['Name', 'Code', 'Latest', 'Currency_value', 'Reason_type', 'Limitup_type', 'High_days', 'Change_rate', 'Date']
-        # self.date = time.strftime('%m-%d',time.localtime(time.time()))
-        self.date = datetime.today().strftime("%m-%d")
+        self.stocks_head = ['name', 'code', 'latest', 'currency_value', 'reason_type', 'limit_up_type', 'high_days', 'change_rate', 
+                            'first_limit_up_time', 'last_limit_up_time', 'is_new', 'is_again_limit', 'order_amount', 'date']
+        # self.date = datetime.today().strftime("%m-%d")
+        self.date = date.today()
         self.header = {
                 'Host': 'data.10jqka.com.cn',
                 'Connection': 'keep-alive',
@@ -79,20 +95,24 @@ class LimitUpStocks:
 
     #获取涨停所有股票
     def getLimitUpStocks(self):
-        rsp = rq.get(url=self.url,headers=self.header,params=self.requestParam())
-        rsp_body = rsp.json()
-        one_page_data = parseLimitUpStockPackage(rsp_body)
-        page = rsp_body['data']['page']
-        page_count = math.ceil(page['total']/page['limit'])
+        rsp = rq.get(url=self.url,headers=self.header,params=self.requestParam()).json()
+        if rsp['status_code'] == 0:
+            data = rsp['data']['info']
+            page = rsp['data']['page']
+            page_count = math.ceil(page['total']/page['limit'])
 
-        #获取翻页全量数据
-        full_stocks = []
-        for i in range(2,page_count+1):
-            rsp = rq.get(url=self.url,headers=self.header,params=self.requestParam(i))
-            one_page_data.extend(parseLimitUpStockPackage(rsp.json()))        
+            #获取翻页全量数据
+            for i in range(2,page_count+1):
+                rsp = rq.get(url=self.url,headers=self.header,params=self.requestParam(i)).json()
+                data.extend(rsp['data']['info'])  
+            for d in data:
+                d['date'] = self.date
+        else:
+            print("access error.")
+            return pd.DataFrame()      
 
         #返回股票详情表单
-        return pd.DataFrame(data=one_page_data,columns=self.stocks_head)
+        return pd.DataFrame(data=data,columns=self.stocks_head)
         
 #解析热度榜数据包
 def parseHotStockPackage(body):
@@ -114,8 +134,8 @@ def parseLimitUpStockPackage(body):
         date = datetime.now()
         rows = []
         infos = body['data']['info']
-        # print(infos)
-        last_date = LimitupStocks.objects.values('Date').distinct().last()['Date']
+        print(infos)
+        last_date = LimitupStock.objects.values('date').distinct().last()['date']
         for info in infos:
             if info['high_days'] == '3天2板' or info['high_days'] == '4天2板':
                 info['high_days'] = '首板'
@@ -123,7 +143,7 @@ def parseLimitUpStockPackage(body):
                 info['high_days'] = '2天2板'
             if info['high_days'] == '5天3板':
                 #判断前一个交易日是否涨停
-                if LimitupStocks.objects.filter(Date__range=(last_date-timedelta(days=1),last_date),Name=info['name']).exists():
+                if LimitupStock.objects.filter(Date__range=(last_date-timedelta(days=1),last_date),Name=info['name']).exists():
                     info['high_days'] = '2天2板'
 
             row = [ info['name'],info['code'],info['latest'],int(info['currency_value']/100000000),\
@@ -136,22 +156,7 @@ def parseLimitUpStockPackage(body):
 def hotStocks2Sqlite():
     hot_stocks = HotRankStocks()
     try:
-        # conn = sqlConn.connect(
-        #     host = "localhost",
-        #     port = 3306,
-        #     user = "root",
-        #     password = "888888",
-        #     database = "tangying"
-        # )
-        # print("connect mysql success.")
-        # conn.start_transaction()
-        # cursor = conn.cursor(prepared=True)
-        # sql = "INSERT into hotstocks VALUES(%s,%s,%s,%s,%s,%s,%s)"
-        # cursor.execute(sql,("中通客车", 1, 0, "燃料电池&新能源汽车", 432514325.2, None, "2022-04-23 08:33:45"))
-        # conn.commit()
-
         hot_stocks_df = hot_stocks.getHotStocksDataFrame()
-        engine = getSqliteEngine()
         hot_stocks_df.to_sql("hotstocks",engine,index=False,if_exists="append")
     except Exception as e:
         print("err:",e)
@@ -165,50 +170,64 @@ def hotStocks2Sqlite():
 #涨停池股票入库
 #拆分涨停原因
 def limitupStocks2Sqlite():
-    limitup_stocks = LimitUpStocks()
-    try:
-        limitup_stocks_df = limitup_stocks.getLimitUpStocks()
-        # limitup_stocks_df.loc('Currency_value')/10^8
+    limitup_stocks = LimitUpStock()
+    limitup_stocks_df = limitup_stocks.getLimitUpStocks()
 
-        #拆分涨停原因
-        rows = []
-        for _,row in limitup_stocks_df.iterrows():
-            for reason in row.loc['Reason_type'].split('+'):
-                # row.loc['Reason_type'] = reason
-                new_row = row.copy()
-                new_row.Reason_type = reason
-                new_row.Date = new_row.Date.strftime('%Y-%m-%d')
-                rows.append(new_row)
-        new_limitup_stocks_df = pd.DataFrame(rows,columns=limitup_stocks.stocks_head).reset_index(drop=True)
-   
-        if LimitupStocks.objects.last().Date.strftime('%Y%m%d') == datetime.now().strftime('%Y%m%d'):
-            LimitupStocks.objects.filter(Date__gte=datetime.now()-timedelta(days=1)).delete()
-        engine = getSqliteEngine()
-        new_limitup_stocks_df.to_sql("limitupstocks",engine,index=False,if_exists="append")
-    except Exception as e:
-        print(e)
+    for item in limitup_stocks_df.to_dict(orient='records'):
+        LimitupStock.objects.update_or_create(code=item['code'], date=item['date'], defaults=item)
 
-def allSecurities2Sqlite():
-    stock_sh_a_spot_em_df = ak.stock_sh_a_spot_em()[['代码','名称']]
-    stock_sz_a_spot_em_df = ak.stock_sz_a_spot_em()[['代码','名称']]
-    stock_a_spot_em_df = pd.concat([ak.stock_sh_a_spot_em()[['代码','名称']],ak.stock_sz_a_spot_em()[['代码','名称']]])
-    stock_a_spot_em_df.rename(columns={'代码':'code','名称':'value'},inplace=True)
-    stock_a_spot_em_df.reset_index(drop=True)
+    # #拆分涨停原因
+    # rows = []
+    # for _,row in limitup_stocks_df.iterrows():
+    #     for reason in row.loc['Reason_type'].split('+'):
+    #         # row.loc['Reason_type'] = reason
+    #         new_row = row.copy()
+    #         new_row.Reason_type = reason
+    #         new_row.Date = new_row.Date.strftime('%Y-%m-%d')
+    #         rows.append(new_row)
+    # new_limitup_stocks_df = pd.DataFrame(rows,columns=limitup_stocks.stocks_head).reset_index(drop=True)
 
-    engine = getSqliteEngine()
-    # print(all_stocks)
-    stock_a_spot_em_df.to_sql("securities",engine,index_label='id',if_exists="replace")   
-    # print(engine.execute("SELECT * FROM securities").fetchall())
+    # if LimitupStock.objects.last().Date.strftime('%Y%m%d') == datetime.now().strftime('%Y%m%d'):
+    #     LimitupStock.objects.filter(Date__gte=datetime.now()-timedelta(days=1)).delete()
+    # new_limitup_stocks_df.to_sql("limitupstocks",engine,index=False,if_exists="append")
+    # except Exception as e:
+    #     print(e)
 
-def allConcept2Sqlite():
-    #获取概念
-    stock_board_concept_name_ths_df = ak.stock_board_concept_name_ths()[['概念名称','代码']].copy()
-    stock_board_concept_name_ths_df.rename(columns={'概念名称':'name','代码':'code'},inplace=True)
-    #获取行业
+def conceptUpdate():
+    stock_board_concept_name_ths_df = ak.stock_board_concept_name_ths()[['概念名称','代码']]
+    stock_board_concept_name_ths_df_re = stock_board_concept_name_ths_df.rename(columns={'概念名称':'name','代码':'code'})
     stock_board_industry_name_ths_df = ak.stock_board_industry_name_ths()
-    #合并
-    stock_board_name_ths_df = pd.concat([stock_board_concept_name_ths_df,stock_board_industry_name_ths_df])
+    stock_board_name_ths_df = pd.concat([stock_board_concept_name_ths_df_re,stock_board_industry_name_ths_df])
     stock_board_name_ths_df.drop_duplicates(subset=['code'],inplace=True)
-    engine = getSqliteEngine()
-    stock_board_name_ths_df.to_sql("concepts",engine,index_label='id',if_exists="replace")
+    stock_board_name_ths_df.to_sql("concept",engine,index_label='id',if_exists="replace")
 
+def securityUpdate():
+    stock_sh = ak.stock_sh_a_spot_em()[['代码','名称','最新价','流通市值','60日涨跌幅','年初至今涨跌幅']]
+    stock_sh['srcSecurityCode'] = "SH" + stock_sh['代码']
+    stock_sz = ak.stock_sz_a_spot_em()[['代码','名称','最新价','流通市值','60日涨跌幅','年初至今涨跌幅']]
+    stock_sz['srcSecurityCode'] = "SZ" + stock_sz['代码']
+    stock_a_spot_em_df = pd.concat([stock_sh,stock_sz])
+    stock_a_spot_em_df.rename(columns={'代码':'code','名称':'value','最新价':'latest','流通市值':'currency_value','60日涨跌幅':'sixty_days_increase','年初至今涨跌幅':'year_increase'},inplace=True)
+    stock_a_spot_em_df.reset_index(drop=True)   
+    print(stock_a_spot_em_df.to_markdown())
+    stock_a_spot_em_df.to_sql("security",engine,index_label='id',if_exists="replace") 
+
+def stockZyUpdate():
+    code_list = Security.objects.values_list('code', flat=True)
+    for code in code_list:
+        if code.startswith("300"):
+            continue
+        print(code)
+        stock_zyjs_ths_df = ak.stock_zyjs_ths(symbol="000066")
+        data = {
+            'code': code,
+            'zyyw': stock_zyjs_ths_df.loc[0,'主营业务'],
+            'jyfw': stock_zyjs_ths_df.loc[0,'经营范围']
+        }
+        StockZY.objects.update_or_create(code=code,defaults=data)
+
+
+# limitupStocks2Sqlite()
+# securityUpdate()
+# conceptUpdate()
+# stockZyUpdate()
