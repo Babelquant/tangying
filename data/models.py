@@ -31,7 +31,7 @@ class LimitupStock(models.Model):
     is_new = models.IntegerField(null=True)
     is_again_limit = models.IntegerField('封板次数',null=True)
     order_amount = models.FloatField('封单额',null=True)
-    date = models.DateTimeField('日期',default=timezone.now)
+    date = models.DateField()
 
     class Meta:
         db_table = 'limitupstock'

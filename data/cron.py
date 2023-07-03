@@ -8,7 +8,6 @@ import requests as rq
 import django
 from django.http import QueryDict
 
-from bs4 import BeautifulSoup
 # 获取项目 settings.py 文件的路径
 sys.path.append("/usr/local/tangying")
 
@@ -16,7 +15,6 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tangying.settings")
 django.setup()
 from data.models import *
 from datetime import *
-from django.db.models import Count
 import akshare as ak
 
 from sqlalchemy import create_engine
@@ -169,7 +167,7 @@ def hotStocks2Sqlite():
 
 #涨停池股票入库
 #拆分涨停原因
-def limitupStocks2Sqlite():
+def limitupStockUpdate():
     limitup_stocks = LimitUpStock()
     limitup_stocks_df = limitup_stocks.getLimitUpStocks()
 
