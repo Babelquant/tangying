@@ -35,7 +35,8 @@ class LimitupStock(models.Model):
 
     class Meta:
         db_table = 'limitupstock'
-
+        get_latest_by = 'date'
+        
 class Security(models.Model):
     code = models.CharField('股票代码',max_length=16)
     srcSecurityCode = models.CharField('证券代码',max_length=16)

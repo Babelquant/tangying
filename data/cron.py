@@ -216,10 +216,23 @@ def stockZyUpdate():
         if code.startswith("300"):
             continue
         print(code)
-        stock_zyjs_ths_df = ak.stock_zyjs_ths(symbol="000066")
+        while True:
+            try:
+                stock_zyjs_ths_df = ak.stock_zyjs_ths(symbol=code)
+                break
+            except rq.exceptions.ChunkedEncodingError:
+                continue
+            except:
+                print(f"get {code} error.")
+                break
+        try: 
+            zyyw = stock_zyjs_ths_df.loc[0,'主营业务']     
+        except:
+            zyyw = ''
+        print(zyyw)
         data = {
             'code': code,
-            'zyyw': stock_zyjs_ths_df.loc[0,'主营业务'],
+            'zyyw': zyyw,
             'jyfw': stock_zyjs_ths_df.loc[0,'经营范围']
         }
         StockZY.objects.update_or_create(code=code,defaults=data)

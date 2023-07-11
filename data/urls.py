@@ -12,13 +12,13 @@ urlpatterns = [
     #获取热度榜数据
     path(r'hot_stocks', HotStockViewSet.as_view(),name='hotStocks'),
     #获取最新排名前十的股票
-    path('hot10_stocks/', getHotTop10Stocks),
+    path(r'historyRank', StockHisRank.as_view(),name='history_rank'),
     #获取当日涨停股票
     path(r'limitup/list', LimitupStockViewSet.as_view(),name='limitup'),
     #概念策略数据
     path(r'conceptStock/list', ConceptStockData.as_view(),name='concept_stock'),
-    #上板情况
-    path('limitup_statistic/', limitupStatistic),
+    #连板情况
+    path(r'continueBoard/list', CtnBoardStockViewSet.as_view(),name='continue_stock'),
     #获取概念分析数据
     path('concept_statistic/', conceptStatistic),
     #获取行业分析数据
@@ -28,7 +28,7 @@ urlpatterns = [
     #获取所有概念信息
     path(r'concept/list', ConceptData.as_view(),name='concept'),
     #获取单只股票蜡烛图数据
-    path('candlestick/<code>/', getCandlestick),
+    path(r'candlestick', StockCandlestick.as_view(),name='candlestick'),
     #获取个股最新行情
     path('latest_price/<code>/', getLatestPrice),
     #获取个股资料

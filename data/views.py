@@ -82,24 +82,41 @@ class HotStockViewSet(APIView):
             "message": "请求成功"
         })
 
+class CtnBoardStockViewSet(APIView):  
+    permission_classes = [AllowAny]
+
+    def get(self,request):
+        # queryset = LimitupStock.objects.filter(high_days__in=['首板', '二天二板', '三天三板']).values('code','name','high_days','date')
+        queryset = LimitupStock.objects.filter(high_days__in=['首板', '2天2板', '3天3板'])
+        res = LimitupStockSerializer(queryset, many=True)
+        return Response({
+            "data": res.data,
+            "code": 200,
+            "message": "请求成功"
+        })
+
 class LimitupStockViewSet(APIView):  
     permission_classes = [AllowAny]
-    # pagination_class = DataPagination
-    filterset_fields = ['asin', 'shop', 'brand', 'festival', 'carrier']
+    filterset_fields = ['date','high_days']
 
     #不分页
     def get(self,request):
         query_params = request.query_params
-        # 使用过滤器过滤数据
         queryset = LimitupStock.objects.order_by('id')
         # Filter queryset based on query parameters in the request  
         for key in query_params:
             if key in self.filterset_fields:
                 if query_params[key] is not None and query_params[key] != '':
-                    # if key == 'kind':
-                    #     queryset = queryset.filter(kind__contains=query_params[key])
-                    # else:
-                    queryset = queryset.filter(**{key: query_params[key]})
+                    if key == "high_days":
+                        queryset = LimitupStock.objects.filter(high_days__in=['首板', '二天二板'])
+                    else:
+                        queryset = queryset.filter(**{key: query_params[key]})
+
+        #判断是否有数据
+        if not queryset.exists() and query_params['date'] == date.today().strftime("%Y-%m-%d"):
+            #获取数据库最新数据
+            latest_date = LimitupStock.objects.latest().date
+            queryset = LimitupStock.objects.filter(date=latest_date)
         # Serialize the paginated queryset and return it to the client
         res = LimitupStockSerializer(queryset, many=True)
         # return paginator.get_paginated_response(res.data)
@@ -306,70 +323,22 @@ def conceptStrategyDataBk(request,codes):
     concept_stocks = origin_stocks.to_dict('records')
     return HttpResponse(json.dumps(concept_stocks,cls=DjangoJSONEncoder,ensure_ascii=False))
 
-#获取概念潜力股筛选数据
-def conceptWinStocksBk(concept_code):
-    now = datetime.now().strftime('%Y-%m-%d')
-    end = datetime.today().strftime('%Y%m%d')
-    rows = []
-    #获取概念成份股
-    stock_board_cons_ths_df = ak.stock_board_cons_ths(symbol=concept_code)
-    # print(concept_code,'获取成分股：\n',stock_board_cons_ths_df)
-    #获取每支股票最新价
-    for _,row in stock_board_cons_ths_df.iterrows():
-        print(row.名称)
-        stock_code = row.代码
-        if stock_code.startswith('300'):
-            continue
-        #判断是否st
-        # if jq.get_extras('is_st',stock,end_date=now,count=1,df=True).iloc[0,0]:
-        #     continue
-        last_price = float(row.现价)
-        if last_price > 9:
-            continue
-        #流通值/亿
-        if float(row.流通市值.rstrip('亿')) > 100:
-            continue
-        #近1周最低价
-        stock_zh_a_hist_df = ak.stock_zh_a_hist(symbol=stock_code, period="daily", start_date=beforDaysn(end,4), end_date=end)
-        if stock_zh_a_hist_df.empty:
-            continue
-        five_day_low_price = stock_zh_a_hist_df.最低.min()
-        #最新价不高于近1周最低价的15%涨幅
-        if last_price > five_day_low_price*1.15:
-            continue
-        #2019年1月波谷,去掉1个最小值
-        stock_zh_a_hist_df = ak.stock_zh_a_hist(symbol=stock_code,start_date='20190101',end_date='20190220')
-        #有股票在对应的时间段未开盘
-        if stock_zh_a_hist_df.empty:
-            continue
-        bottom_price2019 = stock_zh_a_hist_df.nsmallest(2,'最低').最低.iloc[1]
-        #2020年1月波谷,去掉1个最小值
-        stock_zh_a_hist_df = ak.stock_zh_a_hist(symbol=stock_code,start_date='20200101',end_date='20200220')
-        if stock_zh_a_hist_df.empty:
-            continue
-        bottom_price2020 = stock_zh_a_hist_df.nsmallest(2,'最低').最低.iloc[1]
-        #近1周内出现最低价且与2019年1月或2020年1月最低价相差1元以内
-        # if abs(five_day_low_price-bottom_price2019)<1 or abs(five_day_low_price-bottom_price2020)<1:
-        if five_day_low_price<bottom_price2019+1 or five_day_low_price<bottom_price2020+1:
-            #近1周涨幅
-            inc = str(round((last_price - five_day_low_price)/five_day_low_price*100,1))+'%'
-            name = row.名称
-            print(name,last_price,five_day_low_price)
-            rows.append([name,stock_code,last_price,inc])
-    win_stocks = pd.DataFrame(rows,columns=['name','code','last_price','increase'])
-    #分组聚合
-    # g = (win_stocks['concept']).groupby(win_stocks['name']).agg(','.join)
-    return win_stocks
-
 #股票历史排名
-def stockHisRank(request,code):
-    sym = Security.objects.get(code=code).srcSecurityCode
-    stock_rank_detail_em_df = ak.stock_hot_rank_detail_em(symbol=sym)
-    data = {
-        'date': stock_rank_detail_em_df['时间'].to_list(),
-        'rank': stock_rank_detail_em_df['排名'].to_list()
-    }
-    return HttpResponse(json.dumps(data,cls=DjangoJSONEncoder,ensure_ascii=False))
+class StockHisRank(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        sym = Security.objects.get(code=request.query_params['code']).srcSecurityCode
+        stock_rank_detail_em_df = ak.stock_hot_rank_detail_em(symbol=sym)
+        data = {
+            'date': stock_rank_detail_em_df['时间'].to_list(),
+            'rank': stock_rank_detail_em_df['排名'].to_list()
+        }
+        return Response({
+            "data": data,
+            "code": 200,
+            "message": "请求成功"
+        })
 
 #股票最新排名
 def stockLatRank(request,code):
@@ -405,7 +374,11 @@ class ConceptStockData(APIView):
         # for concept_code in kwargs['codes'].split(','):
         dfs = []
         for concept_code in query_params['codes'].split(','):
-            stock_board_cons_ths_df = ak.stock_board_cons_ths(symbol=concept_code)
+            try:
+                stock_board_cons_ths_df = ak.stock_board_cons_ths(symbol=concept_code)
+            except:
+                print(stock_board_cons_ths_df.to_markdown())
+                continue
             # concept = Concept.objects.get(code=concept_code).name
             dfs.append(stock_board_cons_ths_df)
         stocks = pd.concat(dfs)
@@ -458,7 +431,10 @@ async def conceptWinStocks(stock,rows):
         return
 
     #最近涨幅
-    stock_inc = await sync_to_async(Security.objects.get)(code=stock_code)
+    try:
+        stock_inc = await sync_to_async(Security.objects.get)(code=stock_code)
+    except:
+        return
 
     #最新排名
     stock_hot_rank_latest_em_df = ak.stock_hot_rank_latest_em(symbol=stock_inc.srcSecurityCode)
@@ -707,8 +683,6 @@ def getAllConcepts(request):
 def getStockPrice(code):
     today = datetime.today().strftime('%Y%m%d')
     candlestick_df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date="20181201", end_date=today, adjust="qfq")
-    # candlestick_df_nona.reset_index(inplace=True)
-
     return candlestick_df.dropna()
 
 #搜索股票历史数据接口
@@ -716,6 +690,29 @@ def getCandlestick(request,code):
     candlestick = getStockPrice(code)
     # candlestick_df.rename(columns={'index','date'},inplace=True)
     return HttpResponse(json.dumps(np.array(candlestick).tolist(),cls=DjangoJSONEncoder,ensure_ascii=False))
+
+class StockCandlestick(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        code = request.query_params['code']
+        today = datetime.today().strftime('%Y%m%d')
+        try:
+            candlestick_df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date="20181201", end_date=today, adjust="qfq")
+        except Exception as e:
+            return Response({
+                "data": None,
+                "code": 202,
+                "error": e,
+                "message": "请求失败"
+            })
+        df = candlestick_df.dropna()
+        return Response({
+            "data": df.values.tolist(),
+            "code": 200,
+            "message": "请求成功"
+        })
+
 
 #个股实时行情
 def getLatestPrice(request,code):
