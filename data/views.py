@@ -376,19 +376,25 @@ class ConceptStockData(APIView):
         for concept_code in query_params['codes'].split(','):
             try:
                 stock_board_cons_ths_df = ak.stock_board_cons_ths(symbol=concept_code)
+                stock_board_cons_ths_df.drop(columns=['序号','涨跌','涨速','换手','量比','振幅','成交额','流通股','市盈率'],inplace=True)
             except:
                 print(stock_board_cons_ths_df.to_markdown())
                 continue
             # concept = Concept.objects.get(code=concept_code).name
             dfs.append(stock_board_cons_ths_df)
-        stocks = pd.concat(dfs)
-        stocks.drop_duplicates(subset="代码",inplace=True)
+        if len(dfs) > 1:
+            merged_df = dfs.pop()
+            while(dfs):
+                df = dfs.pop()
+                merged_df = merged_df.merge(df)
+        else:
+            merged_df = dfs[0]
 
         rows = []
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
         loop = asyncio.get_event_loop()
-        loop.run_until_complete(conceptWinStocksLoop(stocks,rows))
+        loop.run_until_complete(conceptWinStocksLoop(merged_df,rows))
         loop.close()
 
         # df = pd.DataFrame(rows,columns=['Name','Code','Latest','Currency_value','Change_percent','All_rank','Ind_rank','Related_concept'])
