@@ -21,7 +21,7 @@ from sqlalchemy import create_engine
 
 engine = create_engine('mysql' + '://' + 
                        'root' + ':' +
-                       '12345678' + '@' +
+                       'admin123456' + '@' +
                        '127.0.0.1' + '/' + 
                        'tangying')
 
@@ -66,7 +66,7 @@ class LimitUpStock:
     def __init__(self):
         self.url = "https://data.10jqka.com.cn/dataapi/limit_up/limit_up_pool"
         self.stocks_head = ['name', 'code', 'latest', 'currency_value', 'reason_type', 'limit_up_type', 'high_days', 'change_rate', 
-                            'first_limit_up_time', 'last_limit_up_time', 'is_new', 'is_again_limit', 'order_amount', 'date']
+                            'first_limit_up_time', 'last_limit_up_time', 'is_new', 'is_again_limit', 'order_amount', 'time_preview', 'date']
         # self.date = datetime.today().strftime("%m-%d")
         self.date = date.today()
         self.header = {
@@ -102,8 +102,9 @@ class LimitUpStock:
             #获取翻页全量数据
             for i in range(2,page_count+1):
                 rsp = rq.get(url=self.url,headers=self.header,params=self.requestParam(i)).json()
-                data.extend(rsp['data']['info'])  
+                data.extend(rsp['data']['info'])
             for d in data:
+                d['time_preview'] = str(d['time_preview'])
                 d['date'] = self.date
         else:
             print("access error.")
@@ -170,26 +171,36 @@ def hotStocks2Sqlite():
 def limitupStockUpdate():
     limitup_stocks = LimitUpStock()
     limitup_stocks_df = limitup_stocks.getLimitUpStocks()
+    items = limitup_stocks_df.to_dict(orient='records')
+    dt = items[0]['date']
+    codes = LimitupStock.objects.filter(date=dt).values_list('code', flat=True)
+    old_codes = list(codes)
+    new_codes = [item['code'] for item in items]
+    is_open_codes = list(set(old_codes) - set(new_codes))
+    
+    #保存新增
+    for item in items:
+        if item['code'] in is_open_codes:
+            continue
+        item['is_open'] = 0
+        LimitupStock.objects.update_or_create(code=item['code'], date=dt, defaults=item)
+            
+    #更新炸板
+    for code in is_open_codes:
+        qs = LimitupStock.objects.get(code=code, date=dt)
+        qs.is_open = 1
+        qs.save()
 
-    for item in limitup_stocks_df.to_dict(orient='records'):
+def limitupStockSave():
+    limitup_stocks = LimitUpStock()
+    limitup_stocks_df = limitup_stocks.getLimitUpStocks()
+    items = limitup_stocks_df.to_dict(orient='records')
+    print("delete:",items[0]['date'])
+    LimitupStock.objects.filter(date=items[0]['date']).delete()
+
+    for item in items:
+        print(item['name'],item['date'])
         LimitupStock.objects.update_or_create(code=item['code'], date=item['date'], defaults=item)
-
-    # #拆分涨停原因
-    # rows = []
-    # for _,row in limitup_stocks_df.iterrows():
-    #     for reason in row.loc['Reason_type'].split('+'):
-    #         # row.loc['Reason_type'] = reason
-    #         new_row = row.copy()
-    #         new_row.Reason_type = reason
-    #         new_row.Date = new_row.Date.strftime('%Y-%m-%d')
-    #         rows.append(new_row)
-    # new_limitup_stocks_df = pd.DataFrame(rows,columns=limitup_stocks.stocks_head).reset_index(drop=True)
-
-    # if LimitupStock.objects.last().Date.strftime('%Y%m%d') == datetime.now().strftime('%Y%m%d'):
-    #     LimitupStock.objects.filter(Date__gte=datetime.now()-timedelta(days=1)).delete()
-    # new_limitup_stocks_df.to_sql("limitupstocks",engine,index=False,if_exists="append")
-    # except Exception as e:
-    #     print(e)
 
 def conceptUpdate():
     stock_board_concept_name_ths_df = ak.stock_board_concept_name_ths()[['概念名称','代码']]
@@ -222,8 +233,8 @@ def stockZyUpdate():
                 break
             except rq.exceptions.ChunkedEncodingError:
                 continue
-            except:
-                print(f"get {code} error.")
+            except Exception as e:
+                print(f"get {code} error:{e}")
                 break
         try: 
             zyyw = stock_zyjs_ths_df.loc[0,'主营业务']     
@@ -238,7 +249,7 @@ def stockZyUpdate():
         StockZY.objects.update_or_create(code=code,defaults=data)
 
 
-# limitupStocks2Sqlite()
-# securityUpdate()
-# conceptUpdate()
-# stockZyUpdate()
+#securityUpdate()
+#limitupStockUpdate()
+#conceptUpdate()
+#stockZyUpdate()

@@ -28,9 +28,12 @@ class LimitupStock(models.Model):
     change_tag = models.CharField('换手形态',max_length=32,null=True)
     first_limit_up_time = models.CharField(null=True,max_length=32)
     last_limit_up_time = models.CharField(null=True,max_length=32)
+    is_open = models.IntegerField(default=0)
+    is_open = models.IntegerField(default=0)
     is_new = models.IntegerField(null=True)
     is_again_limit = models.IntegerField('封板次数',null=True)
     order_amount = models.FloatField('封单额',null=True)
+    time_preview = models.TextField(blank=True,default='[]')
     date = models.DateField()
 
     class Meta:

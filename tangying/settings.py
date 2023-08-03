@@ -108,7 +108,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'tangying',
         'USER': 'root',
-        'PASSWORD': '12345678',
+        'PASSWORD': 'admin123456',
         'HOST': '127.0.0.1',
         'PORT': '3306',
         'ATOMIC_REQUESTS': True,
@@ -149,6 +149,8 @@ USE_I18N = True
 USE_TZ = True
 
 ALLOWED_HOSTS = ['*']
+PORT = 9000
+		
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.0/howto/static-files/
 
@@ -166,9 +168,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CRONJOBS = (
     # ('*/10 09-16 * * *', 'data.cron.hotStocks2Sqlite', '>>~/cron.log'),
     #每周1-5 9：25到15：00，拆分！
-    ('25-59/1 9 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
-    ('*/1 10-15 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
-    ('30 15 * * 1-5', 'data.cron.limitupStocks2Sqlite', '>>~/cron.log'),
+    #('25-59/1 9 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
+    #('*/1 10-15 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
+    ('30-59/10 9 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
+    ('*/10 10-15 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
+    ('30 15 * * 1-5', 'data.cron.limitupStockSave', '>>~/cron.log'),
     ('0 0 1 */1 *', 'data.cron.allSecurities2Sqlite', '>>~/cron.log'),
-    ('0 15 * * 5', 'data.cron.allConcept2Sqlite', '>>~/cron.log'),
+    ('0 15 * * 5', 'data.cron.conceptUpdate', '>>~/cron.log'),
 )

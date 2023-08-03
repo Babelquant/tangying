@@ -16,15 +16,19 @@ urlpatterns = [
     #获取当日涨停股票
     path(r'limitup/list', LimitupStockViewSet.as_view(),name='limitup'),
     #概念策略数据
-    path(r'conceptStock/list', ConceptStockData.as_view(),name='concept_stock'),
+    path(r'conceptStock/list', ConceptStockDataViewSet.as_view(),name='concept_stock'),
     #连板情况
-    path(r'continueBoard/list', CtnBoardStockViewSet.as_view(),name='continue_stock'),
-    #获取概念分析数据
-    path('concept_statistic/', conceptStatistic),
+    path(r'continueBoard/list', LimitupStockViewSet.as_view(),name='continue_stock'),
+    #获取1进2数据
+    path(r'limitup_two/list', LimitupTwoViewSet.as_view(),name='limitup_two'),
+    #获取股票主营业务
+    path(r'zy', StockZyViewSet.as_view(),name='zy'),
     #获取行业分析数据
     path('industry_statistic/', industryStatistic),
     #获取所有股票信息
     path('all_securities/', getAllSecurities),
+    #获取热度概念
+    path(r'concept_hot', ConceptHotViewSet.as_view(),name='concept_hot'),
     #获取所有概念信息
     path(r'concept/list', ConceptData.as_view(),name='concept'),
     #获取单只股票蜡烛图数据

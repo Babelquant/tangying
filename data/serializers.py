@@ -7,6 +7,16 @@ class HotStockSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 class LimitupStockSerializer(serializers.ModelSerializer):
+    time_preview = serializers.SerializerMethodField()
+
+    def get_time_preview(self, obj):
+        time_preview = obj.time_preview
+        if time_preview == 'None':
+            return []
+        # 将字符串转换为浮点型数组
+        time_preview_array = [float(num) for num in time_preview.strip('[]').split(',') if num]
+        return time_preview_array
+
     class Meta:
         model = LimitupStock
         fields = "__all__"
@@ -21,14 +31,14 @@ class ConceptSerializer(serializers.ModelSerializer):
         model = Concept
         fields = "__all__"
 
-class StockRank(serializers.ModelSerializer):
+class StockRankSerializer(serializers.ModelSerializer):
     rank = serializers.JSONField(required=False, default=list)
 
     class Meta:
-        model = 'stockrank'   
+        model = StockRank   
         fields = "__all__"
 
-class StockZY(serializers.ModelSerializer):
+class StockZYSerializer(serializers.ModelSerializer):
     class Meta:
-        model = 'stockzy'   
+        model = StockZY   
         fields = "__all__"

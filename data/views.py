@@ -3,6 +3,7 @@ from data.models import *
 from data.serializers import *
 import pandas as pd
 import json
+from collections import Counter 
 import time as tm
 import asyncio
 import aiohttp
@@ -14,7 +15,7 @@ import numpy as np
 import akshare as ak
 from data.cron import *
 from django.http import HttpResponse
-from django.db.models import Aggregate,CharField,Count
+from django.db.models import Aggregate,CharField,Count,F
 
 # from rest_framework.viewsets import ModelViewSet
 from rest_framework.views import APIView
@@ -44,9 +45,9 @@ def beforDaysn(date: str,n: int):
 #自定义数据库API
 class GroupConcat(Aggregate):
     function = 'GROUP_CONCAT'
-    template = '%(function)s(%(distinct)s%(expressions)s)'
+    template = '%(function)s(%(distinct)s%(expressions)s separator "+")'
 
-    def __init__(self, expression, distinct=False,separator='+', **extra):
+    def __init__(self, expression, distinct=False, separator='+', **extra):
         super(GroupConcat, self).__init__(  #python中super用于子类重写父类方法
             expression,
             distinct='DISTINCT ' if distinct else '',
@@ -82,47 +83,198 @@ class HotStockViewSet(APIView):
             "message": "请求成功"
         })
 
-class CtnBoardStockViewSet(APIView):  
-    permission_classes = [AllowAny]
-
-    def get(self,request):
-        # queryset = LimitupStock.objects.filter(high_days__in=['首板', '二天二板', '三天三板']).values('code','name','high_days','date')
-        queryset = LimitupStock.objects.filter(high_days__in=['首板', '2天2板', '3天3板'])
-        res = LimitupStockSerializer(queryset, many=True)
-        return Response({
-            "data": res.data,
-            "code": 200,
-            "message": "请求成功"
-        })
-
 class LimitupStockViewSet(APIView):  
     permission_classes = [AllowAny]
-    filterset_fields = ['date','high_days']
+    filterset_fields = ['high_days']
 
     #不分页
     def get(self,request):
         query_params = request.query_params
-        queryset = LimitupStock.objects.order_by('id')
+        if 'date' in query_params:
+            date = datetime.strptime(query_params['date'], "%Y-%m-%d")
+            #判断日期是否为交易日
+            while True:
+                if is_trade_day(date):
+                    break
+                date = date - timedelta(days=1)
+            
+            queryset = LimitupStock.objects.filter(date=date.strftime("%Y-%m-%d"))
+        else:
+            queryset = LimitupStock.objects.order_by('id')
+
         # Filter queryset based on query parameters in the request  
         for key in query_params:
             if key in self.filterset_fields:
                 if query_params[key] is not None and query_params[key] != '':
                     if key == "high_days":
-                        queryset = LimitupStock.objects.filter(high_days__in=['首板', '二天二板'])
+                        queryset = LimitupStock.objects.filter(high_days__in=query_params.getlist('high_days'))
                     else:
                         queryset = queryset.filter(**{key: query_params[key]})
 
         #判断是否有数据
-        if not queryset.exists() and query_params['date'] == date.today().strftime("%Y-%m-%d"):
-            #获取数据库最新数据
-            latest_date = LimitupStock.objects.latest().date
-            queryset = LimitupStock.objects.filter(date=latest_date)
+        # if not queryset.exists():
+
         # Serialize the paginated queryset and return it to the client
         res = LimitupStockSerializer(queryset, many=True)
         # return paginator.get_paginated_response(res.data)
         return Response({
             # rest_framework.response.Response转dict
             "data": res.data,
+            "code": 200,
+            "message": "请求成功"
+        })
+
+class LimitupTwoViewSet(APIView):  
+    permission_classes = [AllowAny]
+
+    #不分页
+    def get(self,request):
+        query_params = request.query_params
+        if 'date' in query_params:
+            date = datetime.strptime(query_params['date'], "%Y-%m-%d")
+            #判断日期是否为交易日
+            while True:
+                if is_trade_day(date):
+                    break
+                date = date - timedelta(days=1)
+            today_date = date
+            queryset_today = LimitupStock.objects.filter(date=date.strftime("%Y-%m-%d"),high_days__in=['2天2板'],is_open=0)
+            while True:
+                date = date - timedelta(days=1)
+                if is_trade_day(date):
+                    break
+            yeastoday_date = date
+            queryset_yeastoday = LimitupStock.objects.filter(date=date.strftime("%Y-%m-%d"),high_days__in=['首板'],is_open=0)
+
+            win2TodayData = LimitupStockSerializer(queryset_today, many=True).data
+            yeastodayData1 = LimitupStockSerializer(queryset_yeastoday, many=True).data
+
+            #晋级
+            win2Data = [d for d in yeastodayData1 if d['code'] in [item['code'] for item in win2TodayData]]
+            for win in win2Data:
+                df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=yeastoday_date.strftime("%Y%m%d"), adjust="qfq")
+                win['success'] = 1
+                win['increase'] = df.loc[0,'涨跌幅']
+                win['swing'] = df.loc[0,'振幅']
+                win['change_rate'] = df.loc[0,'换手率']
+            for win in win2TodayData:
+                df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=today_date.strftime("%Y%m%d"), end_date=today_date.strftime("%Y%m%d"), adjust="qfq")
+                win['success'] = 1
+                v = [item for item in win2Data if item['code'] == win['code']][0]
+                win['last_time_preview'] = v['time_preview']
+                win['open'] = round((df.loc[0,'开盘'] - v['latest'])/v['latest']*100,1)
+                win['increase'] = df.loc[0,'涨跌幅']
+                win['swing'] = df.loc[0,'振幅']
+                win['change_rate'] = df.loc[0,'换手率']
+            
+            win2Data = win2Data + win2TodayData
+
+            #淘汰
+            out2TodayData = []
+            out2Data = [item for item in yeastodayData1 if item not in win2Data]
+            for out in out2Data:
+                df = ak.stock_zh_a_hist(symbol=out['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=today_date.strftime("%Y%m%d"), adjust="qfq")
+                out['success'] = 0
+                out['increase'] = df.loc[0,'涨跌幅']
+                out['swing'] = df.loc[0,'振幅']
+                out['change_rate'] = df.loc[0,'换手率']
+                out2TodayData.append({
+                    'code': out['code'],
+                    'name': out['name'],
+                    'currency_value': out['currency_value'],
+                    'reason_type': out['reason_type'],
+                    'limit_up_type': out['limit_up_type'],
+                    'last_time_preview': out['time_preview'],
+                    'first_limit_up_time': '',
+                    'last_limit_up_time': '',
+                    'order_amount': None,
+                    'date': today_date,
+                    'success': 0,
+                    'open': round((df.loc[1,'开盘'] - out['latest'])/out['latest']*100,1),
+                    'latest': df.loc[1,'收盘'],
+                    'increase': df.loc[1,'涨跌幅'],
+                    'swing': df.loc[1,'振幅'],
+                    'change_rate': df.loc[1,'换手率']
+                })
+
+            queryset_today = LimitupStock.objects.filter(date=today_date.strftime("%Y-%m-%d"),high_days__in=['3天3板'],is_open=0)
+            queryset_yeastoday = LimitupStock.objects.filter(date=yeastoday_date.strftime("%Y-%m-%d"),high_days__in=['2天2板'],is_open=0)
+            win3TodayData = LimitupStockSerializer(queryset_today, many=True).data
+            yeastodayData2 = LimitupStockSerializer(queryset_yeastoday, many=True).data
+
+            #晋级
+            win3Data = [d for d in yeastodayData2 if d['code'] in [item['code'] for item in win3TodayData]]
+            for win in win3Data:
+                df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=yeastoday_date.strftime("%Y%m%d"), adjust="qfq")
+                win['success'] = 1
+                win['increase'] = df.loc[0,'涨跌幅']
+                win['swing'] = df.loc[0,'振幅']
+                win['change_rate'] = df.loc[0,'换手率']
+            for win in win3TodayData:
+                df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=today_date.strftime("%Y%m%d"), end_date=today_date.strftime("%Y%m%d"), adjust="qfq")
+                win['success'] = 1
+                v = [item for item in win3Data if item['code'] == win['code']][0]
+                win['last_time_preview'] = v['time_preview']
+                win['open'] = round((df.loc[0,'开盘'] - v['latest'])/v['latest']*100,1)
+                win['increase'] = df.loc[0,'涨跌幅']
+                win['swing'] = df.loc[0,'振幅']
+                win['change_rate'] = df.loc[0,'换手率']
+            
+            win3Data = win3Data + win3TodayData
+
+            #淘汰
+            out3TodayData = []
+            out3Data = [item for item in yeastodayData2 if item not in win3Data]
+            for out in out3Data:
+                df = ak.stock_zh_a_hist(symbol=out['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=today_date.strftime("%Y%m%d"), adjust="qfq")
+                out['success'] = 0
+                out['increase'] = df.loc[0,'涨跌幅']
+                out['swing'] = df.loc[0,'振幅']
+                out['change_rate'] = df.loc[0,'换手率']
+                out3TodayData.append({
+                    'code': out['code'],
+                    'name': out['name'],
+                    'currency_value': out['currency_value'],
+                    'reason_type': out['reason_type'],
+                    'limit_up_type': out['limit_up_type'],
+                    'last_time_preview': out['time_preview'],
+                    'first_limit_up_time': '',
+                    'last_limit_up_time': '',
+                    'order_amount': None,
+                    'date': today_date,
+                    'success': 0,
+                    'open': round((df.loc[1,'开盘'] - out['latest'])/out['latest']*100,1),
+                    'latest': df.loc[1,'收盘'],
+                    'increase': df.loc[1,'涨跌幅'],
+                    'swing': df.loc[1,'振幅'],
+                    'change_rate': df.loc[1,'换手率']
+                })
+
+            yeastodayData = yeastodayData1 + yeastodayData2
+            todayData2 = win2TodayData + out2TodayData
+            todayData3 = win3TodayData + out3TodayData
+            return Response({
+                "data": {'yeastoday_data': yeastodayData, 'today_data2': todayData2, 'today_data3': todayData3},
+                "code": 200,
+                "message": "请求成功"
+            })
+
+class ConceptHotViewSet(APIView):  
+    permission_classes = [AllowAny]
+
+    #不分页
+    def get(self,request):
+        rowData = [('Date','Concept','LimitUpNum')]
+        # result = LimitupStock.objects.values('date').annotate(reason_types=Concat('reason_type', Value('+'), output_field=CharField()))
+        result = LimitupStock.objects.values('date').annotate(reason_types=GroupConcat(F('reason_type')))
+        for row in result:
+            if not row['reason_types']:
+                continue
+            top10 = Counter(row['reason_types'].split('+')).most_common(10)
+            for c,n in top10:
+                rowData.append([row['date'],c,n])  
+        return Response({
+            "data": rowData,
             "code": 200,
             "message": "请求成功"
         })
@@ -366,7 +518,7 @@ class ConceptData(APIView):
 
 #概念策略
 # def conceptStockData(request,**kwargs):
-class ConceptStockData(APIView):
+class ConceptStockDataViewSet(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
@@ -378,17 +530,21 @@ class ConceptStockData(APIView):
                 stock_board_cons_ths_df = ak.stock_board_cons_ths(symbol=concept_code)
                 stock_board_cons_ths_df.drop(columns=['序号','涨跌','涨速','换手','量比','振幅','成交额','流通股','市盈率'],inplace=True)
             except:
-                print(stock_board_cons_ths_df.to_markdown())
+                print(concept_code)
                 continue
             # concept = Concept.objects.get(code=concept_code).name
             dfs.append(stock_board_cons_ths_df)
-        if len(dfs) > 1:
+        if len(dfs) >= 1:
             merged_df = dfs.pop()
             while(dfs):
                 df = dfs.pop()
                 merged_df = merged_df.merge(df)
         else:
-            merged_df = dfs[0]
+            return Response({
+                # rest_framework.response.Response转dict
+                "code": 201,
+                "message": "请求失败"
+            })
 
         rows = []
         new_loop = asyncio.new_event_loop()
@@ -443,10 +599,14 @@ async def conceptWinStocks(stock,rows):
         return
 
     #最新排名
-    stock_hot_rank_latest_em_df = ak.stock_hot_rank_latest_em(symbol=stock_inc.srcSecurityCode)
-    rank = stock_hot_rank_latest_em_df[stock_hot_rank_latest_em_df.item == "rank"].iloc[-1,-1]
-    rank_change = stock_hot_rank_latest_em_df[stock_hot_rank_latest_em_df.item == "rankChange"].iloc[-1,-1]
-
+    try:
+        stock_hot_rank_latest_em_df = ak.stock_hot_rank_latest_em(symbol=stock_inc.srcSecurityCode)
+        rank = stock_hot_rank_latest_em_df[stock_hot_rank_latest_em_df.item == "rank"].iloc[-1,-1]
+        rank_change = stock_hot_rank_latest_em_df[stock_hot_rank_latest_em_df.item == "rankChange"].iloc[-1,-1]
+    except:
+        rank = None
+        rank_change = None
+        
     #主营介绍
     stock_zy = await sync_to_async(StockZY.objects.get)(code=stock_code)
 
@@ -516,6 +676,25 @@ def isMonster(code,nearday=100,ratio=[1,1.5]):
     # print('近3年最低价：',low800) 
     # print('近3年最高价：',high800)
     return True
+
+class StockZyViewSet(APIView):
+    permission_classes = [AllowAny]
+    
+    def get(self,request):
+        try:
+            queryset = StockZY.objects.get(code=request.query_params['code'])
+            serializer = StockZYSerializer(queryset)
+            return Response({
+                "data": serializer.data['zyyw'],
+                "code": 200,
+                "message": "请求成功"
+            })
+        except StockZY.DoesNotExist:
+            return Response({
+                "code": 404,
+                "message": "数据不存在"
+            })
+
 
 #首板策略
 def firstBoardStrategy(request):
