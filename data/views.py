@@ -149,7 +149,7 @@ class LimitupTwoViewSet(APIView):
             win2TodayData = LimitupStockSerializer(queryset_today, many=True).data
             yeastodayData1 = LimitupStockSerializer(queryset_yeastoday, many=True).data
 
-            #晋级
+            #1进2晋级
             win2Data = [d for d in yeastodayData1 if d['code'] in [item['code'] for item in win2TodayData]]
             for win in win2Data:
                 df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=yeastoday_date.strftime("%Y%m%d"), adjust="qfq")
@@ -169,9 +169,9 @@ class LimitupTwoViewSet(APIView):
             
             win2Data = win2Data + win2TodayData
 
-            #淘汰
+            #1进2淘汰
             out2TodayData = []
-            out2Data = [item for item in yeastodayData1 if item not in win2Data]
+            out2Data = [d for d in yeastodayData1 if d['code'] not in [item['code'] for item in win2Data]]
             for out in out2Data:
                 df = ak.stock_zh_a_hist(symbol=out['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=today_date.strftime("%Y%m%d"), adjust="qfq")
                 out['success'] = 0
@@ -202,7 +202,7 @@ class LimitupTwoViewSet(APIView):
             win3TodayData = LimitupStockSerializer(queryset_today, many=True).data
             yeastodayData2 = LimitupStockSerializer(queryset_yeastoday, many=True).data
 
-            #晋级
+            #2进3晋级
             win3Data = [d for d in yeastodayData2 if d['code'] in [item['code'] for item in win3TodayData]]
             for win in win3Data:
                 df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=yeastoday_date.strftime("%Y%m%d"), adjust="qfq")
@@ -222,9 +222,9 @@ class LimitupTwoViewSet(APIView):
             
             win3Data = win3Data + win3TodayData
 
-            #淘汰
+            #2进3淘汰
             out3TodayData = []
-            out3Data = [item for item in yeastodayData2 if item not in win3Data]
+            out3Data = [d for d in yeastodayData2 if d['code'] not in [item['code'] for item in win3Data]]
             for out in out3Data:
                 df = ak.stock_zh_a_hist(symbol=out['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=today_date.strftime("%Y%m%d"), adjust="qfq")
                 out['success'] = 0
