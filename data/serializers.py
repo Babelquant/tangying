@@ -30,12 +30,10 @@ class ConceptSerializer(serializers.ModelSerializer):
     class Meta:
         model = Concept
         fields = "__all__"
-
-class StockRankSerializer(serializers.ModelSerializer):
-    rank = serializers.JSONField(required=False, default=list)
-
+        
+class StockRealtimeRankSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StockRank   
+        model = StockRealtimeRank   
         fields = "__all__"
 
 class StockZYSerializer(serializers.ModelSerializer):

@@ -68,14 +68,14 @@ class Concept(models.Model):
 
     class Meta:
         db_table = 'concept'
-
-class StockRank(models.Model):
+        
+class StockRealtimeRank(models.Model):
     srcSecurityCode = models.CharField(max_length=16)
-    rank = models.TextField(null=True,default='null')
-    date = models.DateTimeField('日期',default=timezone.now)
+    rank = models.IntegerField(null=True,default='null')
+    time = models.DateTimeField()
 
     class Meta:
-        db_table = 'stockrank'     
+        db_table = 'stockrealtimerank'     
 
 class StockZY(models.Model):
     code = models.CharField(max_length=16)

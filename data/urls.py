@@ -11,8 +11,8 @@ from data.views import *
 urlpatterns = [
     #获取热度榜数据
     path(r'hot_stocks', HotStockViewSet.as_view(),name='hotStocks'),
-    #获取最新排名前十的股票
-    path(r'historyRank', StockHisRank.as_view(),name='history_rank'),
+    #获取历史热热度排名
+    path(r'historyRank', StockHisRankViewSet.as_view(),name='history_rank'),
     #获取当日涨停股票
     path(r'limitup/list', LimitupStockViewSet.as_view(),name='limitup'),
     #概念策略数据
@@ -20,9 +20,11 @@ urlpatterns = [
     #连板情况
     path(r'continueBoard/list', LimitupStockViewSet.as_view(),name='continue_stock'),
     #获取1进2数据
-    path(r'limitup_two/list', LimitupTwoViewSet.as_view(),name='limitup_two'),
+    path(r'limitup_two/list', LimitupContinueViewSet.as_view(),name='limitup_two'),
     #获取股票主营业务
     path(r'zy', StockZyViewSet.as_view(),name='zy'),
+    #热度排名异动
+    path(r'rank_big_change', AbnormalStockRankViewSet.as_view(),name='rank_big_change'),
     #获取行业分析数据
     path('industry_statistic/', industryStatistic),
     #获取所有股票信息

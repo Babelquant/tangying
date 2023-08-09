@@ -9,6 +9,7 @@ import asyncio
 import aiohttp
 from asgiref.sync import sync_to_async
 from django.core.serializers.json import DjangoJSONEncoder
+from django.forms.models import model_to_dict
 from datetime import *
 from chinese_calendar import is_workday
 import numpy as np
@@ -123,8 +124,62 @@ class LimitupStockViewSet(APIView):
             "code": 200,
             "message": "请求成功"
         })
+        
+class AbnormalStockRankViewSet(APIView):
+    permission_classes = [AllowAny]
+    
+    def get(self,request):
+    #     query_params = request.query_params
+    #     if 'date' in query_params:
+    #         rows = []
+    #         date = datetime.strptime(query_params['date'], "%Y-%m-%d")
+    #         last_date = date - timedelta(days=1)
+            
+    #         stocks = Security.objects.all()
+    #         for stock in stocks:
+    #             qs = StockRealtimeRank.objects.filter(srcSecurityCode=stock.srcSecurityCode,time__date__in=[last_date,date]).aggregate(
+    #                 max_rank=models.Max('rank'), min_rank=models.Min('rank'))
+    #             row = model_to_dict(stock)
+    #             if not row['latest']:
+    #                 continue
+    #             try:
+    #                 row['rank_change'] = qs['max_rank'] - qs['min_rank']
+    #             except:
+    #                 row['rank_change'] = 0
+    #             rows.append(row)
 
-class LimitupTwoViewSet(APIView):  
+    #         sorted_rows = sorted([row for row in rows if row['rank_change'] > 500 and row['latest'] < 30], key=lambda x: x['rank_change'], reverse=True)
+    #         return Response({
+    #             "data": sorted_rows[:100],
+    #             "code": 200,
+    #             "message": "请求成功"
+    #         })
+    
+        stock_hot_up_em_df = ak.stock_hot_up_em()
+        stock_hot_up_em_df = stock_hot_up_em_df.drop('涨跌额',axis=1)
+        stock_hot_up_em_df.rename(columns={'排名较昨日变动':'rank_change','当前排名':'rank','代码':'sym','股票名称':'name','最新价':'latest','涨跌幅':'increase'},inplace=True)
+        rows = []
+        for _,row in stock_hot_up_em_df.iterrows():
+            print(row.sym.lower())
+            try:
+                security = Security.objects.get(srcSecurityCode=row.sym.lower())
+            except:
+                print(f"{row.sym} does not exist.")
+                continue
+            row = row.to_dict()
+            row['code'] = security.code
+            row['currency_value'] = security.currency_value
+            row['sixty_days_increase'] = security.sixty_days_increase
+            row['year_increase'] = security.year_increase
+            print(row)
+            rows.append(row)
+        return Response({
+            "data": rows,
+            "code": 200,
+            "message": "请求成功"
+        })   
+
+class LimitupContinueViewSet(APIView):  
     permission_classes = [AllowAny]
 
     #不分页
@@ -149,14 +204,15 @@ class LimitupTwoViewSet(APIView):
             win2TodayData = LimitupStockSerializer(queryset_today, many=True).data
             yeastodayData1 = LimitupStockSerializer(queryset_yeastoday, many=True).data
 
-            #1进2晋级
+            #1进2晋级票昨日数据
             win2Data = [d for d in yeastodayData1 if d['code'] in [item['code'] for item in win2TodayData]]
-            for win in win2Data:
-                df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=yeastoday_date.strftime("%Y%m%d"), adjust="qfq")
-                win['success'] = 1
-                win['increase'] = df.loc[0,'涨跌幅']
-                win['swing'] = df.loc[0,'振幅']
-                win['change_rate'] = df.loc[0,'换手率']
+            # for win in win2Data:
+            #     df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=yeastoday_date.strftime("%Y%m%d"), adjust="qfq")
+            #     win['success'] = 1
+            #     win['increase'] = df.loc[0,'涨跌幅']
+            #     win['swing'] = df.loc[0,'振幅']
+            #     win['change_rate'] = df.loc[0,'换手率']
+            #1进2晋级票今日数据
             for win in win2TodayData:
                 df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=today_date.strftime("%Y%m%d"), end_date=today_date.strftime("%Y%m%d"), adjust="qfq")
                 win['success'] = 1
@@ -167,11 +223,9 @@ class LimitupTwoViewSet(APIView):
                 win['swing'] = df.loc[0,'振幅']
                 win['change_rate'] = df.loc[0,'换手率']
             
-            win2Data = win2Data + win2TodayData
-
             #1进2淘汰
             out2TodayData = []
-            out2Data = [d for d in yeastodayData1 if d['code'] not in [item['code'] for item in win2Data]]
+            out2Data = [d for d in yeastodayData1 if d['code'] not in [item['code'] for item in win2TodayData]]
             for out in out2Data:
                 df = ak.stock_zh_a_hist(symbol=out['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=today_date.strftime("%Y%m%d"), adjust="qfq")
                 out['success'] = 0
@@ -204,12 +258,12 @@ class LimitupTwoViewSet(APIView):
 
             #2进3晋级
             win3Data = [d for d in yeastodayData2 if d['code'] in [item['code'] for item in win3TodayData]]
-            for win in win3Data:
-                df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=yeastoday_date.strftime("%Y%m%d"), adjust="qfq")
-                win['success'] = 1
-                win['increase'] = df.loc[0,'涨跌幅']
-                win['swing'] = df.loc[0,'振幅']
-                win['change_rate'] = df.loc[0,'换手率']
+            # for win in win3Data:
+            #     df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=yeastoday_date.strftime("%Y%m%d"), adjust="qfq")
+            #     win['success'] = 1
+            #     win['increase'] = df.loc[0,'涨跌幅']
+            #     win['swing'] = df.loc[0,'振幅']
+            #     win['change_rate'] = df.loc[0,'换手率']
             for win in win3TodayData:
                 df = ak.stock_zh_a_hist(symbol=win['code'], period="daily", start_date=today_date.strftime("%Y%m%d"), end_date=today_date.strftime("%Y%m%d"), adjust="qfq")
                 win['success'] = 1
@@ -220,11 +274,9 @@ class LimitupTwoViewSet(APIView):
                 win['swing'] = df.loc[0,'振幅']
                 win['change_rate'] = df.loc[0,'换手率']
             
-            win3Data = win3Data + win3TodayData
-
             #2进3淘汰
             out3TodayData = []
-            out3Data = [d for d in yeastodayData2 if d['code'] not in [item['code'] for item in win3Data]]
+            out3Data = [d for d in yeastodayData2 if d['code'] not in [item['code'] for item in win3TodayData]]
             for out in out3Data:
                 df = ak.stock_zh_a_hist(symbol=out['code'], period="daily", start_date=yeastoday_date.strftime("%Y%m%d"), end_date=today_date.strftime("%Y%m%d"), adjust="qfq")
                 out['success'] = 0
@@ -308,30 +360,6 @@ def getHotTop10Stocks(request):
 #查询最新涨停股
 #values做分组
 #annotate,aggregate做聚合
-def queryLimitupStocks():
-    if LimitupStocks.objects.count() == 0:
-        return None
-    limitup_stocks_pool = LimitupStocks.objects.filter(Date__gte=LimitupStocks.objects.last().Date-timedelta(days=1))
-    last_limitup_stocks = limitup_stocks_pool.values('Name').annotate(_Reason_type=GroupConcat('Reason_type'))
-    
-    return last_limitup_stocks
-
-def getLimitupStocks(request):
-    limitup_stocks = queryLimitupStocks()
-    if limitup_stocks == None:
-        return HttpResponse(json.dumps([],ensure_ascii=False))
-    # print(befor_last_date,type(befor_last_date))
-    last_limitup_stocks = limitup_stocks.values('Name', 'Code', 'Latest', 'Currency_value', '_Reason_type', 'Limitup_type', 'High_days', 'Change_rate')
-
-    # for last_limitup_stock in last_limitup_stocks:
-    #     if last_limitup_stock['High_days'] == '3天2板' or last_limitup_stock['High_days'] == '4天2板':
-    #         last_limitup_stock['High_days'] = '首板'
-    #     if last_limitup_stock['High_days'] == '5天3板':
-    #         #判断前一天是否涨停
-    #         if LimitupStocks.objects.filter(Date__range=(befor_last_date-timedelta(days=1),befor_last_date),Name=last_limitup_stock['Name']).exists():
-    #             last_limitup_stock['High_days'] = '2天2板'
-        
-    return HttpResponse(json.dumps(list(last_limitup_stocks),ensure_ascii=False))
 
 #箱体形态模型
 #maxdrop:去掉最大值个数
@@ -443,45 +471,21 @@ def getSharpfallStrategy(request):
         # sharpfalls.append(sharpfall)
     return HttpResponse(json.dumps(sharpfalls,cls=DjangoJSONEncoder,ensure_ascii=False))
 
-#概念策略
-def conceptStrategyDataBk(request,codes):
-    win_stock_set = []
-    try:
-        for concept_code in codes.split(','):
-            concept = Concepts.objects.get(code=concept_code).name
-            win_stock = conceptWinStocks(concept_code)
-            if not win_stock.empty:
-                win_stock.insert(loc=4,column='concept',value=concept)
-                win_stock_set.append(win_stock)
-    except Exception as e:
-        print(e)
-        return HttpResponse('err:',e)
-
-    if win_stock_set == []:
-        return HttpResponse(json.dumps([],cls=DjangoJSONEncoder,ensure_ascii=False))
-    # concept_stocks = []
-    if len(win_stock_set) == 1:
-        origin_stocks = win_stock_set[0]
-    else:
-        #df数据分组聚合 
-        # print('win_df:',win_stock_set)
-        origin_stocks = pd.concat(win_stock_set,ignore_index=True)
-        # origin_stocks['concept_count'] = origin_stocks.groupby('name')['name'].transform('count')
-        origin_stocks['concept'] = origin_stocks.groupby('name')['concept'].transform(','.join)
-        origin_stocks.drop_duplicates(ignore_index=True)
-    #df转dict
-    # for concept_stock in np.array(origin_stocks).tolist():
-    #     concept_stocks.append({'name':concept_stock[0],'code':concept_stock[1],'concept':concept_stock[4],'last_price':concept_stock[2],'increase':concept_stock[3]})
-    concept_stocks = origin_stocks.to_dict('records')
-    return HttpResponse(json.dumps(concept_stocks,cls=DjangoJSONEncoder,ensure_ascii=False))
-
 #股票历史排名
-class StockHisRank(APIView):
+class StockHisRankViewSet(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
         sym = Security.objects.get(code=request.query_params['code']).srcSecurityCode
-        stock_rank_detail_em_df = ak.stock_hot_rank_detail_em(symbol=sym)
+        try:
+            stock_rank_detail_em_df = ak.stock_hot_rank_detail_em(symbol=sym)
+        except Exception as e:
+            print(f"获取历史排名失败:{e}")
+            return Response({
+                "data": str(e),
+                "code": 205,
+                "message": "请求失败"
+            })
         data = {
             'date': stock_rank_detail_em_df['时间'].to_list(),
             'rank': stock_rank_detail_em_df['排名'].to_list()
@@ -491,18 +495,6 @@ class StockHisRank(APIView):
             "code": 200,
             "message": "请求成功"
         })
-
-#股票最新排名
-def stockLatRank(request,code):
-    sym = Security.objects.get(code=code).srcSecurityCode
-    stock_hot_rank_latest_em_df = ak.stock_hot_rank_latest_em(symbol=sym)
-    rank = stock_hot_rank_latest_em_df[stock_hot_rank_latest_em_df.item == "rank"].iloc[-1,-1]
-    rank_change = stock_hot_rank_latest_em_df[stock_hot_rank_latest_em_df.item == "rankChange"].iloc[-1,-1]
-    data = {
-        'rank': rank,
-        'rank_change': rank_change
-    }
-    return HttpResponse(json.dumps(data,cls=DjangoJSONEncoder,ensure_ascii=False))
 
 class ConceptData(APIView):
     permission_classes = [AllowAny]

@@ -2,22 +2,20 @@
 scrape hot stocks
 """
 
-import sys,time,os,math
+import sys,os,math
 import pandas as pd
 import requests as rq
-import django
-from django.http import QueryDict
+from datetime import *
 
+import akshare as ak
+import django
+from sqlalchemy import create_engine
 # 获取项目 settings.py 文件的路径
 sys.path.append("/usr/local/tangying")
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tangying.settings")
 django.setup()
 from data.models import *
-from datetime import *
-import akshare as ak
-
-from sqlalchemy import create_engine
 
 engine = create_engine('mysql' + '://' + 
                        'root' + ':' +
@@ -196,11 +194,13 @@ def limitupStockSave():
     limitup_stocks_df = limitup_stocks.getLimitUpStocks()
     items = limitup_stocks_df.to_dict(orient='records')
     print("delete:",items[0]['date'])
-    LimitupStock.objects.filter(date=items[0]['date']).delete()
+    # LimitupStock.objects.filter(date=items[0]['date']).delete()
+    qs = LimitupStock.objects.filter(date=items[0]['date'])
+    qs.delete()
 
     for item in items:
         print(item['name'],item['date'])
-        LimitupStock.objects.update_or_create(code=item['code'], date=item['date'], defaults=item)
+        LimitupStock.objects.create(**item)
 
 def conceptUpdate():
     stock_board_concept_name_ths_df = ak.stock_board_concept_name_ths()[['概念名称','代码']]
@@ -218,7 +218,6 @@ def securityUpdate():
     stock_a_spot_em_df = pd.concat([stock_sh,stock_sz])
     stock_a_spot_em_df.rename(columns={'代码':'code','名称':'value','最新价':'latest','流通市值':'currency_value','60日涨跌幅':'sixty_days_increase','年初至今涨跌幅':'year_increase'},inplace=True)
     stock_a_spot_em_df.reset_index(drop=True)   
-    print(stock_a_spot_em_df.to_markdown())
     stock_a_spot_em_df.to_sql("security",engine,index_label='id',if_exists="replace") 
 
 def stockZyUpdate():
@@ -248,8 +247,24 @@ def stockZyUpdate():
         }
         StockZY.objects.update_or_create(code=code,defaults=data)
 
-
+# def stockRealtimeRankUpdate():
+#     stocks = Security.objects.all()
+#     i = 0
+#     for stock in stocks:
+#         i+=1
+#         print(i)
+#         try:
+#             stock_hot_rank_detail_realtime_em_df = ak.stock_hot_rank_detail_realtime_em(symbol=stock.srcSecurityCode)
+#             stock_hot_rank_detail_realtime_em_df['时间'] = pd.to_datetime(stock_hot_rank_detail_realtime_em_df['时间'])
+#             max_row = stock_hot_rank_detail_realtime_em_df.nlargest(1, "排名")
+#             min_row = stock_hot_rank_detail_realtime_em_df.nsmallest(1, "排名")
+#             StockRealtimeRank.objects.update_or_create(srcSecurityCode=stock.srcSecurityCode, rank=max_row.iloc[0].排名, time=max_row.iloc[0].时间)
+#             StockRealtimeRank.objects.update_or_create(srcSecurityCode=stock.srcSecurityCode, rank=min_row.iloc[0].排名, time=min_row.iloc[0].时间)
+            
+#         except Exception as e:
+#             print(f"update {stock.srcSecurityCode} realtime rank faild: {e}")
+        
 #securityUpdate()
 #limitupStockUpdate()
 #conceptUpdate()
-#stockZyUpdate()
+# stockRealtimeRankUpdate()

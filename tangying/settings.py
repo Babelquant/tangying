@@ -146,7 +146,7 @@ TIME_ZONE = 'Asia/Shanghai'
 
 USE_I18N = True
 
-USE_TZ = True
+USE_TZ = False
 
 ALLOWED_HOSTS = ['*']
 PORT = 9000
@@ -172,7 +172,8 @@ CRONJOBS = (
     #('*/1 10-15 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
     ('30-59/10 9 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
     ('*/10 10-15 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
+    ('0 14 * * 1-5', 'data.cron.securityUpdate', '>>~/cron.log'),
     ('30 15 * * 1-5', 'data.cron.limitupStockSave', '>>~/cron.log'),
-    ('0 0 1 */1 *', 'data.cron.allSecurities2Sqlite', '>>~/cron.log'),
     ('0 15 * * 5', 'data.cron.conceptUpdate', '>>~/cron.log'),
+
 )
