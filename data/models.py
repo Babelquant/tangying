@@ -84,3 +84,20 @@ class StockZY(models.Model):
 
     class Meta:
         db_table = 'stockzy'  
+        
+class BidPrice(models.Model):
+    code = models.CharField(max_length=16)
+    name = models.CharField('股票名称',max_length=8)
+    latest = models.FloatField('最新价',null=True)
+    currency_value = models.FloatField('流通市值')
+    increase = models.FloatField(null=True)
+    acceleration = models.FloatField('涨速',null=True)
+    sixty_days_increase = models.FloatField(null=True)
+    year_increase = models.FloatField(null=True)
+    time_increase = models.TextField(blank=True,default='[]')
+    # time_volume = models.TextField(blank=True,default='[]')
+    date = models.DateField()
+
+    class Meta:
+        get_latest_by = 'date'
+        db_table = 'bidprice'

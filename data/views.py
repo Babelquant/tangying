@@ -160,7 +160,6 @@ class AbnormalStockRankViewSet(APIView):
         stock_hot_up_em_df.rename(columns={'排名较昨日变动':'rank_change','当前排名':'rank','代码':'sym','股票名称':'name','最新价':'latest','涨跌幅':'increase'},inplace=True)
         rows = []
         for _,row in stock_hot_up_em_df.iterrows():
-            print(row.sym.lower())
             try:
                 security = Security.objects.get(srcSecurityCode=row.sym.lower())
             except:
@@ -171,7 +170,6 @@ class AbnormalStockRankViewSet(APIView):
             row['currency_value'] = security.currency_value
             row['sixty_days_increase'] = security.sixty_days_increase
             row['year_increase'] = security.year_increase
-            print(row)
             rows.append(row)
         return Response({
             "data": rows,
@@ -530,7 +528,7 @@ class ConceptStockDataViewSet(APIView):
             merged_df = dfs.pop()
             while(dfs):
                 df = dfs.pop()
-                merged_df = merged_df.merge(df)
+                merged_df = pd.merge(merged_df,df[['代码']],how="inner",on="代码")
         else:
             return Response({
                 # rest_framework.response.Response转dict
@@ -623,6 +621,31 @@ async def conceptWinStocksLoop(stocks,rows):
         works.append(conceptWinStocks(stock,rows))
     await asyncio.gather(*works)
 
+class BidPriceAbnormalViewSet(APIView):
+    permission_classes = [AllowAny]
+    
+    def get(self,request):
+        query_params = request.query_params
+        if 'date' in query_params:
+            date = datetime.strptime(query_params['date'], "%Y-%m-%d")
+            #判断日期是否为交易日
+            while True:
+                if is_trade_day(date):
+                    break
+                date = date - timedelta(days=1)
+            
+            queryset = BidPrice.objects.filter(date=date.strftime("%Y-%m-%d"))
+        else:
+            queryset = BidPrice.objects.latest()
+            
+        res = BidPriceSerializer(queryset, many=True)
+        return Response({
+            # rest_framework.response.Response转dict
+            "data": res.data,
+            "code": 200,
+            "message": "请求成功"
+        })        
+
 #妖股策略
 #code:股票代码
 #near:统计最近多少个交易日的股价最低点
@@ -705,103 +728,6 @@ def firstBoardStrategy(request):
     # stocks_df = ths_df[(ths_df.涨跌幅<1) & (ths_df.流通市值/10**8<80) & (ths_df.振幅<2)].reset_index(drop=True)
     # return HttpResponse(json.dumps(stocks_df.to_dict('records'),cls=DjangoJSONEncoder,ensure_ascii=False))
 
-#布林策略输出
-def bollStrategyData(request):
-    LimitupStocks = queryLimitupStocks()
-    if LimitupStocks == None:
-        return HttpResponse(json.dumps([],ensure_ascii=False))
-    # now = datetime.now().strftime('%Y%m%d')
-    #获取涨停池
-    last_limitup_stocks = LimitupStocks.values('Name', '_Reason_type', 'Latest', 'Limitup_type', 'High_days', 'Currency_value', 'Code', 'Date')
-    now = last_limitup_stocks.last()['Date'].strftime('%Y%m%d')
-    #策略选股
-    win_stocks = []
-    # all_stocks = Securities.objects.values('name','code')
-    for stock in list(last_limitup_stocks):
-        if stock['Latest'] > 12:
-            continue
-        if stock['Currency_value'] > 100:
-            continue
-        if stock['Limitup_type'] == '一字板':
-            continue
-        if stock['High_days'].startswith('首'):
-            if stock['Latest'] > 9:
-                continue
-        # code  = Securities.objects.get(name=stock['Name']).code
-        stock_code = stock['Code']
-        #计算布林
-        stock_zh_a_hist_df = ak.stock_zh_a_hist(symbol=stock_code, period="daily", start_date=beforDaysn(now,20), end_date=now)
-        if stock_zh_a_hist_df.empty:
-            continue
-        tm.sleep(3)
-        if stock_zh_a_hist_df.empty:
-            continue      
-        #计算SMA值
-        stock_zh_a_hist_df['sma_20'] = stock_zh_a_hist_df['收盘'].rolling(window=20).mean()
-        #计算布林上轨
-        stock_zh_a_hist_df['upper_bb'] = round(stock_zh_a_hist_df['sma_20'] + stock_zh_a_hist_df['收盘'].rolling(window=20).std()*2,2) 
-        #涨停价未穿过上轨 
-        print(f"股票:{stock['Name']} 现价:{stock['Latest']} 布林上轨:{stock_zh_a_hist_df.iloc[-1,-1]}")
-        if stock_zh_a_hist_df.iloc[-1,-1] > stock['Latest']+0.1:
-            win_stocks.append(stock)
- 
-        # #2019年1月波谷,去掉1个最小值
-        # stock_zh_a_hist_df = ak.stock_zh_a_hist(symbol=stock_code,start_date='20190101',end_date='20190220')
-        # #有股票在对应的时间段未开盘
-        # if stock_zh_a_hist_df.empty:
-        #     continue
-        # bottom_price2019 = stock_zh_a_hist_df.nsmallest(2,'最低').最低.iloc[1]
-        # #2020年1月波谷,去掉1个最小值
-        # stock_zh_a_hist_df = ak.stock_zh_a_hist(symbol=stock_code,start_date='20200101',end_date='20200220')
-        # if stock_zh_a_hist_df.empty:
-        #     continue
-        # bottom_price2020 = stock_zh_a_hist_df.nsmallest(2,'最低').最低.iloc[1]
-        # #近80日最低价
-        # stock_zh_a_hist_df = ak.stock_zh_a_hist(symbol=stock_code, period="daily", start_date=beforDaysn(now,80), end_date=now)
-        # if stock_zh_a_hist_df.empty:
-        #     continue
-        # eighty_day_low_price = stock_zh_a_hist_df.最低.min()
-        # #近80日内出现最低价且与2019年1月或2020年1月最低价相差1元以内
-        # if eighty_day_low_price<bottom_price2019+1 or eighty_day_low_price<bottom_price2020+1:
-        #     win_stocks.append(stock)
-            
-    return HttpResponse(json.dumps(win_stocks,cls=DjangoJSONEncoder,ensure_ascii=False))
-
-#涨停板统计分析
-def limitupStatistic(request):
-    head = [['High_days','Name','Date']]
-    #过滤本月数据
-    # data1 = LimitupStocks.objects.get(High_days__regex=r'(首|2|3).*').filter(Date__month=datetime.today().month).values('Name','Date').\
-    data = LimitupStocks.objects.filter(Date__month=datetime.today().month).values('Name','Date','High_days').distinct()
-    if data.count() == 0:
-        return HttpResponse(json.dumps(head,cls=DjangoJSONEncoder,ensure_ascii=False))
-    data_df = pd.DataFrame.from_records(data)
-    #df按多列分组
-    # data_df['Num'] = data_df.groupby(['High_days','Date'])['Name'].transform('count')
-    data_df['Name'] = data_df.groupby(['High_days','Date'])['Name'].transform(','.join)
-    # data_df.drop(columns=['Name'],inplace=True)
-    data_df.drop_duplicates(ignore_index=True,inplace=True)
-    # print(data_df[data_df.Date=='2022-08-30'])
-    # data1 = data.values('Date','High_days').annotate(Num=Count('Name')).values_list('High_days','Num','Date').order_by('Date')
-    # print(pd.DataFrame.from_records(data1.filter(Date__gte='2022-08-28').values('Name','_Reason_type','Date','High_days')))
-    # print(pd.DataFrame.from_records(data))
-    for _,d in data_df.iterrows():
-        head.append([d.High_days,d.Name,d.Date.strftime('%m-%d')])
-    return HttpResponse(json.dumps(head,cls=DjangoJSONEncoder,ensure_ascii=False))
-
-#获取概念股统计数据
-def conceptStatistic(request):
-    chart = [['Reason_type', 'Limitup_count','Relative_stocks','Date']]
-    limitup_stocks_pool = LimitupStocks.objects.filter(Date__month=datetime.now().month).\
-    values('Reason_type').annotate(Limitup_count=Count('Name'),Relative_stocks=GroupConcat('Name')).values_list('Reason_type', 'Limitup_count','Relative_stocks','Date').order_by('Date')
-    for limitup_stock_pool in limitup_stocks_pool:  #返回值类型为元组
-        #拿到数据库中时间字符串二次加工以满足图表对时间格式的要求
-        list_limitup_stock_pool = list(limitup_stock_pool)
-        list_limitup_stock_pool[3] = list_limitup_stock_pool[3].strftime('%Y-%m-%d')
-        chart.append(list_limitup_stock_pool)
-    # return HttpResponse(json.dumps(list(limitup_stocks_pool),cls=DjangoJSONEncoder,ensure_ascii=False))
-    return HttpResponse(json.dumps(chart,cls=DjangoJSONEncoder,ensure_ascii=False))
-
 #获取涨停股行业统计数据
 def industryStatistic(request):
     chart = [['Industry', 'Limitup_count','Relative_stocks','Date']]
@@ -819,29 +745,6 @@ def getAllSecurities(request):
     all_stocks_name = Securities.objects.values('value','code') 
     #qs数据格式返回字典的列表方法:list
     return HttpResponse(json.dumps(list(all_stocks_name),ensure_ascii=False))
-
-#获取所有概念信息
-#index:概念代码
-#name：概念名称
-def getAllConcepts(request):
-    all_concepts = Concepts.objects.values('name','code') 
-    #qs数据格式返回字典的列表方法:list
-    return HttpResponse(json.dumps(list(all_concepts),ensure_ascii=False))
-    #直接接口获取 弃用
-    # #获取概念
-    # stock_board_concept_name_ths_df = ak.stock_board_concept_name_ths()[['概念名称','代码']]
-    # stock_board_concept_name_ths_df.rename(columns={'概念名称':'name','代码':'code'},inplace=True)
-    # #获取行业
-    # stock_board_industry_name_ths_df = ak.stock_board_industry_name_ths()
-    # #合并
-    # stock_board_name_ths_df = pd.concat([stock_board_concept_name_ths_df,stock_board_industry_name_ths_df]).reset_index(inplace=True)
-
-    #df数据格式返回字典的列表方法:np.array转二维数组--->tolist--->构造字典列表
-    #与for v in df.values等效
-    # concepts = []
-    # for concept in np.array(stock_board_name_ths_df).tolist():
-    #     concepts.append({'name':concept[0],'code':concept[1]})
-    # return HttpResponse(json.dumps(concepts,cls=DjangoJSONEncoder,ensure_ascii=False))
 
 #获取单只股票数据
 #返回值：
@@ -876,14 +779,23 @@ class StockCandlestick(APIView):
         today = datetime.today().strftime('%Y%m%d')
         try:
             candlestick_df = ak.stock_zh_a_hist(symbol=code, period="daily", start_date="20181201", end_date=today, adjust="qfq")
+            candlestick_df = candlestick_df.dropna()
+            sym = Security.objects.get(code=code).srcSecurityCode
+            stock_rank_detail_em_df = ak.stock_hot_rank_detail_em(symbol=sym)
+            stock_rank_detail_em_df = stock_rank_detail_em_df[['时间','排名']]
+            stock_rank_detail_em_df.rename(columns={'时间':'日期'},inplace=True)
+            stock_rank_detail_em_df['日期'] = pd.to_datetime(stock_rank_detail_em_df['日期']).dt.date
+            candlestick_df['日期'] = pd.to_datetime(candlestick_df['日期']).dt.date
+            df = candlestick_df.merge(stock_rank_detail_em_df, how="left", on="日期")
         except Exception as e:
+            print(e)
             return Response({
                 "data": None,
                 "code": 202,
                 "error": e,
                 "message": "请求失败"
             })
-        df = candlestick_df.dropna()
+        df['排名'].fillna('-',inplace=True)
         return Response({
             "data": df.values.tolist(),
             "code": 200,

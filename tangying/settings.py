@@ -168,10 +168,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CRONJOBS = (
     # ('*/10 09-16 * * *', 'data.cron.hotStocks2Sqlite', '>>~/cron.log'),
     #每周1-5 9：25到15：00，拆分！
-    #('25-59/1 9 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
+    ('15 9 * * 1-5', 'data.cron.bidprice2sql', '>>~/cron.log'),
     #('*/1 10-15 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
-    ('30-59/10 9 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
-    ('*/10 10-15 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
+    ('30-59/5 9 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
+    ('*/5 10-15 * * 1-5', 'data.cron.limitupStockUpdate', '>>~/cron.log'),
     ('0 14 * * 1-5', 'data.cron.securityUpdate', '>>~/cron.log'),
     ('30 15 * * 1-5', 'data.cron.limitupStockSave', '>>~/cron.log'),
     ('0 15 * * 5', 'data.cron.conceptUpdate', '>>~/cron.log'),

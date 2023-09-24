@@ -6,6 +6,7 @@ import sys,os,math
 import pandas as pd
 import requests as rq
 from datetime import *
+import time as tm
 
 import akshare as ak
 import django
@@ -263,7 +264,34 @@ def stockZyUpdate():
             
 #         except Exception as e:
 #             print(f"update {stock.srcSecurityCode} realtime rank faild: {e}")
-        
+
+def bidprice2sql():
+    over_time = time(9, 25)
+    current_time = datetime.now().time()
+    stock_zh_a_spot_em_df = ak.stock_zh_a_spot_em()
+    stock_zh_a_spot_em_bid_df = stock_zh_a_spot_em_df[['代码','涨跌幅']]
+    # stock_zh_a_spot_em_pri_df = stock_zh_a_spot_em_df[['代码','最新价']]
+    while (current_time <= over_time):
+        df = ak.stock_zh_a_spot_em()
+        df_bid = df[['代码','涨跌幅']]
+        # df_price = df[['代码','最新价']]
+        stock_zh_a_spot_em_bid_df = stock_zh_a_spot_em_bid_df.merge(df_bid,how="left",on="代码",suffixes=(None,current_time.strftime("%M:%S")))
+        tm.sleep(1)
+        current_time = datetime.now().time()
+    #找出竞价冲涨停的个股
+    stock_zh_a_spot_em_bid_df = stock_zh_a_spot_em_bid_df[(stock_zh_a_spot_em_bid_df.iloc[:, 1:] > 9.5).any(axis=1)]
+    stock_zh_a_spot_em_bid_df['time_increase'] = stock_zh_a_spot_em_bid_df.apply(lambda x:str(x[1:].values.tolist()),axis=1)
+    stock_zh_a_spot_em_bid_df.rename(columns={"代码":"code"},inplace=True)
+    stock_zh_a_spot_em_bid_df = stock_zh_a_spot_em_bid_df[["code","time_increase"]]
+    stock_zh_a_spot_em_df = ak.stock_zh_a_spot_em()[['代码','名称','最新价','流通市值','涨跌幅','涨速','60日涨跌幅','年初至今涨跌幅']]
+    stock_zh_a_spot_em_df.rename(columns={'代码':'code','名称':'name','最新价':'latest','流通市值':'currency_value','60日涨跌幅':'sixty_days_increase',
+        '涨跌幅':'increase','涨速':'acceleration','年初至今涨跌幅':'year_increase'},inplace=True)
+    stock_zh_a_spot_em_df = stock_zh_a_spot_em_df[['code','name','latest','currency_value','increase','acceleration','sixty_days_increase','year_increase']]
+    stock_zh_a_spot_em_bid_df = stock_zh_a_spot_em_bid_df.merge(stock_zh_a_spot_em_df,how="left",on="code")
+    stock_zh_a_spot_em_bid_df['date'] = date.today()
+    #保存数据
+    stock_zh_a_spot_em_bid_df.to_sql('bidprice', con=engine, if_exists='append', index=False)
+    
 #securityUpdate()
 #limitupStockUpdate()
 #conceptUpdate()

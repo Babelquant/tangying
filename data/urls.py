@@ -17,6 +17,8 @@ urlpatterns = [
     path(r'limitup/list', LimitupStockViewSet.as_view(),name='limitup'),
     #概念策略数据
     path(r'conceptStock/list', ConceptStockDataViewSet.as_view(),name='concept_stock'),
+    #集合竞价异动
+    path(r'abnormal_bidprice/list', BidPriceAbnormalViewSet.as_view(),name='bidprice'),
     #连板情况
     path(r'continueBoard/list', LimitupStockViewSet.as_view(),name='continue_stock'),
     #获取1进2数据
@@ -43,8 +45,6 @@ urlpatterns = [
     path('board_concept_data/', getBoardConceptData),
     #获取最新涨停股票行业分析详情
     path('limitup_industry/', getLimitupIndustry),
-    #布林策略数据
-    path('boll_strategy/', bollStrategyData),
     #概念策略数据
     # path('concept_stock/<str:codes>/', conceptStockData),
     #快速下跌策略数据

@@ -14,11 +14,23 @@ class LimitupStockSerializer(serializers.ModelSerializer):
         if time_preview == 'None':
             return []
         # 将字符串转换为浮点型数组
-        time_preview_array = [float(num) for num in time_preview.strip('[]').split(',') if num]
+        time_preview_array = [float(num) for num in time_preview.strip('[]').split(',') if num and num!='None']
         return time_preview_array
 
     class Meta:
         model = LimitupStock
+        fields = "__all__"
+
+class BidPriceSerializer(serializers.ModelSerializer):
+    time_increase = serializers.SerializerMethodField()
+
+    def get_time_increase(self, obj):
+        time_increase = obj.time_increase
+        time_increase_array = [float(num) for num in time_increase.strip('[]').split(',') if num!='nan' and num]
+        return time_increase_array
+    
+    class Meta:
+        model = BidPrice
         fields = "__all__"
 
 class SecuritySerializer(serializers.ModelSerializer):
