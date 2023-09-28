@@ -26,7 +26,8 @@ class BidPriceSerializer(serializers.ModelSerializer):
 
     def get_time_increase(self, obj):
         time_increase = obj.time_increase
-        time_increase_array = [float(num) for num in time_increase.strip('[]').split(',') if num!='nan' and num]
+        time_increase_array = [float(num.strip()) for num in time_increase.strip('[]').split(',') if num.strip()!='nan']
+               
         return time_increase_array
     
     class Meta:

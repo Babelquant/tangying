@@ -640,7 +640,6 @@ class BidPriceAbnormalViewSet(APIView):
             
         res = BidPriceSerializer(queryset, many=True)
         return Response({
-            # rest_framework.response.Response转dict
             "data": res.data,
             "code": 200,
             "message": "请求成功"
